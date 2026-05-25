@@ -7,7 +7,7 @@ include .env
 export
 endif
 
-.PHONY: render-codex deploy-codex render-claude-code deploy-claude-code render-hermes-agent deploy-hermes-agent render-hermes-agent-slack deploy-hermes-agent-slack render-slack-bridge deploy-slack-bridge render-pi deploy-pi render-goose deploy-goose render-openswe deploy-openswe clean-rendered
+.PHONY: render-codex deploy-codex render-claude-code deploy-claude-code render-claude-code-slack deploy-claude-code-slack render-hermes-agent deploy-hermes-agent render-hermes-agent-slack deploy-hermes-agent-slack render-slack-bridge deploy-slack-bridge render-pi deploy-pi render-goose deploy-goose render-openswe deploy-openswe clean-rendered
 
 GOOSE_MODEL ?= openai-main/gpt-5.5
 GOOSE_API_HOST ?= goose-api$(patsubst hermes-api%,%,$(HERMES_API_HOST))
@@ -18,6 +18,7 @@ GOOSE_SECRET_ADMIN_EMAIL ?= admin@example.com
 GOOSE_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$GOOSE_SECRET_GROUP $$GOOSE_SECRET_INTEGRATION_FQN $$GOOSE_SECRET_ADMIN_EMAIL $$GOOSE_API_HOST $$GOOSE_MODEL $$GOOSE_STORAGE_CLASS'
 HERMES_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$CODEX_GATEWAY_SECRET_GROUP $$HERMES_API_HOST'
 OPENSWE_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$OPENSWE_API_HOST'
+CLAUDE_CODE_SLACK_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$CLAUDE_CODE_SLACK_SECRET_GROUP $$CLAUDE_CODE_GATEWAY_SECRET_GROUP $$CLAUDE_CODE_GATEWAY_URL $$CLAUDE_CODE_SLACK_HOST'
 
 clean-rendered:
 	rm -rf .rendered
@@ -44,6 +45,19 @@ deploy-claude-code: render-claude-code
 	@test -n "$(TFY)" || (echo "tfy not found. Install TrueFoundry CLI or add tfy to PATH." && exit 1)
 	$(TFY) apply -f .rendered/claude-code/volume.yaml
 	$(TFY) deploy -f .rendered/claude-code/service.yaml --no-wait --force
+
+render-claude-code-slack:
+	@test -n "$(ENVSUBST)" || (echo "envsubst not found. Install gettext or add envsubst to PATH." && exit 1)
+	@test -n "$(CLAUDE_CODE_SLACK_HOST)" || (echo "CLAUDE_CODE_SLACK_HOST is required. Set it in .env." && exit 1)
+	@test -n "$(CLAUDE_CODE_GATEWAY_URL)" || (echo "CLAUDE_CODE_GATEWAY_URL is required. Set it in .env." && exit 1)
+	mkdir -p .rendered/claude-code
+	$(ENVSUBST) $(CLAUDE_CODE_SLACK_ENVSUBST_VARS) < harnesses/claude-code/deployments/template/slack-volume.yaml > .rendered/claude-code/slack-volume.yaml
+	$(ENVSUBST) $(CLAUDE_CODE_SLACK_ENVSUBST_VARS) < harnesses/claude-code/deployments/template/slack-service.yaml > .rendered/claude-code/slack-service.yaml
+
+deploy-claude-code-slack: render-claude-code-slack
+	@test -n "$(TFY)" || (echo "tfy not found. Install TrueFoundry CLI or add tfy to PATH." && exit 1)
+	$(TFY) apply -f .rendered/claude-code/slack-volume.yaml
+	$(TFY) deploy -f .rendered/claude-code/slack-service.yaml --no-wait --force
 
 render-hermes-agent:
 	@test -n "$(ENVSUBST)" || (echo "envsubst not found. Install gettext or add envsubst to PATH." && exit 1)

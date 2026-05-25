@@ -1,0 +1,74 @@
+name: claude-code-slack-bridge
+type: service
+workspace_fqn: ${TFY_WORKSPACE_FQN}
+image:
+  type: build
+  build_source:
+    type: local
+    local_build: false
+    project_root_path: ${HARNESS_DEPLOY_ROOT}/shared/slack/bridge
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: "."
+resources:
+  cpu_request: 0.25
+  cpu_limit: 1
+  memory_request: 512
+  memory_limit: 1024
+  ephemeral_storage_request: 1000
+  ephemeral_storage_limit: 2000
+env:
+  PORT: "3000"
+  SLACK_BOT_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${CLAUDE_CODE_SLACK_SECRET_GROUP}:SLACK-BOT-TOKEN"
+  SLACK_SIGNING_SECRET: "tfy-secret://${TFY_SECRET_TENANT}:${CLAUDE_CODE_SLACK_SECRET_GROUP}:SLACK-SIGNING-SECRET"
+  SLACK_ALLOWED_USERS: "tfy-secret://${TFY_SECRET_TENANT}:${CLAUDE_CODE_SLACK_SECRET_GROUP}:SLACK-ALLOWED-USERS"
+  SLACK_ALLOWED_CHANNELS: "tfy-secret://${TFY_SECRET_TENANT}:${CLAUDE_CODE_SLACK_SECRET_GROUP}:SLACK-ALLOWED-CHANNELS"
+  SLACK_REQUIRE_MENTION: "true"
+  SLACK_STRICT_MENTION: "true"
+  SLACK_FREE_RESPONSE_CHANNELS: ""
+  SLACK_BRIDGE_STATE_DIR: /data/slack-bridge
+  HARNESS_NAME: claude-code
+  HARNESS_API_URL: ${CLAUDE_CODE_GATEWAY_URL}
+  HARNESS_API_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${CLAUDE_CODE_GATEWAY_SECRET_GROUP}:CLAUDE-GATEWAY-BEARER-TOKEN"
+  HARNESS_SESSION_CREATE_PATH: /v1/agents/claude-code/sessions
+  HARNESS_SESSION_MESSAGE_PATH_TEMPLATE: /v1/sessions/{session_id}/events
+  HARNESS_SESSION_EVENTS_PATH_TEMPLATE: /v1/sessions/{session_id}/events
+  HARNESS_POLL_EVENTS: "true"
+  HARNESS_POLL_INTERVAL_MS: "2500"
+  HARNESS_POLL_ATTEMPTS: "40"
+  HARNESS_REQUEST_TIMEOUT_MS: "600000"
+  HARNESS_EVENT_POLL_TIMEOUT_MS: "15000"
+ports:
+  - port: 3000
+    protocol: TCP
+    expose: true
+    host: ${CLAUDE_CODE_SLACK_HOST}
+    app_protocol: http
+replicas: 1
+rollout_strategy:
+  type: rolling_update
+  max_unavailable_percentage: 100
+  max_surge_percentage: 0
+mounts:
+  - type: volume
+    mount_path: /data
+    volume_fqn: tfy-volume://${TFY_WORKSPACE_FQN}:claude-slack-bridge-state-block
+liveness_probe:
+  config:
+    type: http
+    path: /healthz
+    port: 3000
+  initial_delay_seconds: 30
+  period_seconds: 15
+  timeout_seconds: 5
+  failure_threshold: 5
+readiness_probe:
+  config:
+    type: http
+    path: /readyz
+    port: 3000
+  initial_delay_seconds: 30
+  period_seconds: 15
+  timeout_seconds: 5
+allow_interception: false

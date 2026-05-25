@@ -8,7 +8,7 @@
     "check": "node --check server.js"
   },
   "dependencies": {
-    "@slack/bolt": "^4.5.0"
+    "@slack/web-api": "^7.13.0"
   },
   "engines": {
     "node": ">=22"

@@ -1,6 +1,6 @@
 # Harness Slack Bridge
 
-Generic Slack Socket Mode bridge for harnesses that expose the standard
+Generic Slack HTTP Events bridge for harnesses that expose the standard
 HTTP-ish session API:
 
 - `POST /sessions` with `{ "message": "..." }`
@@ -13,6 +13,13 @@ Set path templates with env vars when a harness differs:
 - `HARNESS_SESSION_MESSAGE_PATH_TEMPLATE`
 - `HARNESS_SESSION_EVENTS_PATH_TEMPLATE`
 
-The bridge does not expose Slack Events over an inbound webhook. It runs as a
-long-lived outbound worker using Slack Socket Mode, then calls the target
-harness over HTTP.
+Expose `POST /slack/events` as the Slack Request URL. The bridge verifies Slack
+request signatures using `SLACK_SIGNING_SECRET`, acknowledges Slack immediately,
+then calls the target harness over HTTP in the background.
+
+Required Slack env vars:
+
+- `SLACK_BOT_TOKEN`
+- `SLACK_SIGNING_SECRET`
+
+Do not use `SLACK_APP_TOKEN`; this bridge does not use Socket Mode.
