@@ -11,8 +11,10 @@ because the upstream Goose Dockerfile currently ships only the `goose` CLI.
 
 ## Model Routing
 
-The service writes a Goose custom provider config on startup and points it at
-the existing TrueFoundry Gateway secrets:
+The service uses Goose's built-in OpenAI-compatible provider and points it at
+the existing TrueFoundry Gateway secrets through `OPENAI_HOST` and
+`OPENAI_API_KEY`. `OPENAI_BASE_PATH` is pinned to `/v1/chat/completions` so
+Goose does not auto-route GPT-5-family models to the Responses API.
 
 - `tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-BASE-URL`
 - `tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-API-KEY`

@@ -1,19 +1,23 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, chownSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const port = Number(process.env.PORT || 3001);
 const workspaceRoot = process.env.WORKSPACE_ROOT || "/data/workspaces";
 const stateRoot = process.env.CLAUDE_GATEWAY_STATE_DIR || "/data/gateway-state";
-const home = process.env.HOME || "/data/home";
-const claudeConfigDir = process.env.CLAUDE_CONFIG_DIR || "/data/claude";
+const fallbackHome = process.env.HOME || "/data/home";
+const fallbackClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR || "/data/claude";
 const gatewayToken = process.env.GATEWAY_BEARER_TOKEN || "";
 const defaultModel = process.env.CLAUDE_MODEL || process.env.ANTHROPIC_MODEL || "";
 const defaultPermissionMode = process.env.CLAUDE_PERMISSION_MODE || "bypassPermissions";
 const maxSessionEvents = Number(process.env.CLAUDE_GATEWAY_MAX_EVENTS || 10000);
 const defaultMaxTurns = Number(process.env.CLAUDE_MAX_TURNS || 20);
+const sandboxMode = process.env.CLAUDE_GATEWAY_SANDBOX_MODE || "unix-user";
+const sdkSandboxEnabled = (process.env.CLAUDE_GATEWAY_SDK_SANDBOX || "0") === "1";
+const unixUserSandboxEnabled = sandboxMode === "unix-user";
 const defaultAllowedTools = (process.env.CLAUDE_ALLOWED_TOOLS || "Bash,Read,Edit,Write,MultiEdit,Glob,Grep,LS,NotebookEdit,WebFetch,WebSearch")
   .split(",")
   .map((tool) => tool.trim())
@@ -21,8 +25,8 @@ const defaultAllowedTools = (process.env.CLAUDE_ALLOWED_TOOLS || "Bash,Read,Edit
 
 mkdirSync(workspaceRoot, { recursive: true });
 mkdirSync(stateRoot, { recursive: true });
-mkdirSync(home, { recursive: true });
-mkdirSync(claudeConfigDir, { recursive: true });
+mkdirSync(fallbackHome, { recursive: true });
+mkdirSync(fallbackClaudeConfigDir, { recursive: true });
 
 const sessions = new Map();
 const subscribers = new Map();
@@ -37,10 +41,49 @@ function sessionStatePath(sessionId) {
 
 function ensureSessionLayout(sessionId) {
   const root = sessionDir(sessionId);
-  for (const child of ["workspace", "state", "checkpoints", "artifacts"]) {
+  for (const child of ["workspace", "state", "checkpoints", "artifacts", "home", "claude", "tmp"]) {
     mkdirSync(join(root, child), { recursive: true });
   }
   return root;
+}
+
+function sessionPaths(sessionId) {
+  const root = ensureSessionLayout(sessionId);
+  return {
+    root,
+    workspaceDir: join(root, "workspace"),
+    stateDir: join(root, "state"),
+    homeDir: join(root, "home"),
+    claudeConfigDir: join(root, "claude"),
+    tmpDir: join(root, "tmp"),
+  };
+}
+
+function uidFromSessionId(sessionId) {
+  const hex = sessionId.replace(/^sess_/, "").replace(/-/g, "").slice(0, 8);
+  return 10000 + (Number.parseInt(hex || "0", 16) % 50000);
+}
+
+function applyOwnership(path, uid, gid) {
+  if (!unixUserSandboxEnabled || typeof process.getuid !== "function" || process.getuid() !== 0) return;
+  const stat = lstatSync(path);
+  chownSync(path, uid, gid);
+  chmodSync(path, stat.isDirectory() ? 0o700 : 0o600);
+  if (!stat.isDirectory()) return;
+  for (const entry of readdirSync(path, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) continue;
+    applyOwnership(join(path, entry.name), uid, gid);
+  }
+}
+
+function prepareSessionFilesystem(session) {
+  if (!unixUserSandboxEnabled) return;
+  for (const dir of [session.workspace_dir, session.state_dir, session.home_dir, session.claude_config_dir, session.tmp_dir]) {
+    mkdirSync(dir, { recursive: true });
+    applyOwnership(dir, session.sandbox_uid, session.sandbox_gid);
+  }
+  chmodSync(sessionDir(session.id), 0o700);
+  chownSync(sessionDir(session.id), session.sandbox_uid, session.sandbox_gid);
 }
 
 function nextSequenceFrom(events) {
@@ -56,6 +99,11 @@ function persistSession(session) {
     updated_at: session.updated_at,
     workspace_dir: session.workspace_dir,
     state_dir: session.state_dir,
+    home_dir: session.home_dir,
+    claude_config_dir: session.claude_config_dir,
+    tmp_dir: session.tmp_dir,
+    sandbox_uid: session.sandbox_uid,
+    sandbox_gid: session.sandbox_gid,
     model: session.model || null,
     permission_mode: session.permission_mode,
     max_turns: session.max_turns || null,
@@ -73,8 +121,16 @@ function loadPersistedSessions() {
     try {
       const data = JSON.parse(readFileSync(join(stateRoot, file.name), "utf8"));
       const events = data.events || [];
+      const paths = sessionPaths(data.id);
       sessions.set(data.id, {
         ...data,
+        workspace_dir: data.workspace_dir || paths.workspaceDir,
+        state_dir: data.state_dir || paths.stateDir,
+        home_dir: data.home_dir || paths.homeDir,
+        claude_config_dir: data.claude_config_dir || paths.claudeConfigDir,
+        tmp_dir: data.tmp_dir || paths.tmpDir,
+        sandbox_uid: data.sandbox_uid || uidFromSessionId(data.id),
+        sandbox_gid: data.sandbox_gid || uidFromSessionId(data.id),
         status: data.status === "running" ? "failed" : data.status,
         events,
         next_sequence: data.next_sequence || nextSequenceFrom(events),
@@ -190,11 +246,12 @@ class MessageQueue {
   }
 }
 
-function sdkEnv() {
+function sdkEnv(session) {
   return {
     ...process.env,
-    HOME: home,
-    CLAUDE_CONFIG_DIR: claudeConfigDir,
+    HOME: session.home_dir || fallbackHome,
+    CLAUDE_CONFIG_DIR: session.claude_config_dir || fallbackClaudeConfigDir,
+    TMPDIR: session.tmp_dir || "/tmp",
     CLAUDE_AGENT_SDK_CLIENT_APP: "truefoundry-claude-code-gateway",
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN,
     CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB || "1",
@@ -203,17 +260,48 @@ function sdkEnv() {
   };
 }
 
+function spawnClaudeCodeProcessForSession(session) {
+  return (options) => {
+    const childOptions = {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      signal: options.signal,
+    };
+    if (unixUserSandboxEnabled && typeof process.getuid === "function" && process.getuid() === 0) {
+      childOptions.uid = session.sandbox_uid;
+      childOptions.gid = session.sandbox_gid;
+    }
+    return spawn(options.command, options.args, childOptions);
+  };
+}
+
 function sdkOptions(session, { resumeNativeSessionId } = {}) {
   const requestedPermissionMode = session.permission_mode || "default";
-  const scrubEnabled = sdkEnv().CLAUDE_CODE_SUBPROCESS_ENV_SCRUB !== "0";
+  const env = sdkEnv(session);
+  const scrubEnabled = env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB !== "0";
   const permissionMode = scrubEnabled && requestedPermissionMode === "bypassPermissions" ? "default" : requestedPermissionMode;
   return {
     cwd: session.workspace_dir,
-    env: sdkEnv(),
+    env,
     model: session.model || undefined,
     permissionMode,
     allowDangerouslySkipPermissions: permissionMode === "bypassPermissions" && !scrubEnabled,
     allowedTools: defaultAllowedTools,
+    sandbox: sdkSandboxEnabled
+      ? {
+          enabled: true,
+          failIfUnavailable: true,
+          autoAllowBashIfSandboxed: true,
+          allowUnsandboxedCommands: false,
+          filesystem: {
+            allowRead: [session.workspace_dir, session.home_dir, session.claude_config_dir, session.tmp_dir],
+            allowWrite: [session.workspace_dir, session.home_dir, session.claude_config_dir, session.tmp_dir],
+            allowManagedReadPathsOnly: true,
+          },
+        }
+      : undefined,
+    spawnClaudeCodeProcess: spawnClaudeCodeProcessForSession(session),
     maxTurns: session.max_turns || defaultMaxTurns,
     persistSession: true,
     resume: resumeNativeSessionId || undefined,
@@ -232,6 +320,7 @@ function extractAssistantText(message) {
 }
 
 function startSdkRuntime(session, { resumeNativeSessionId } = {}) {
+  prepareSessionFilesystem(session);
   const input = new MessageQueue();
   const abortController = new AbortController();
   const sdkQuery = query({
@@ -294,16 +383,19 @@ function startSdkRuntime(session, { resumeNativeSessionId } = {}) {
 
 function startClaudeSession({ message, model, permissionMode } = {}) {
   const sessionId = `sess_${randomUUID()}`;
-  const root = ensureSessionLayout(sessionId);
-  const workspaceDir = join(root, "workspace");
-  const stateDir = join(root, "state");
+  const paths = sessionPaths(sessionId);
   const session = {
     id: sessionId,
     status: "starting",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    workspace_dir: workspaceDir,
-    state_dir: stateDir,
+    workspace_dir: paths.workspaceDir,
+    state_dir: paths.stateDir,
+    home_dir: paths.homeDir,
+    claude_config_dir: paths.claudeConfigDir,
+    tmp_dir: paths.tmpDir,
+    sandbox_uid: uidFromSessionId(sessionId),
+    sandbox_gid: uidFromSessionId(sessionId),
     model: model || defaultModel,
     permission_mode: permissionMode || defaultPermissionMode,
     max_turns: defaultMaxTurns,
@@ -314,12 +406,18 @@ function startClaudeSession({ message, model, permissionMode } = {}) {
     input: null,
     abortController: null,
   };
+  prepareSessionFilesystem(session);
   sessions.set(sessionId, session);
   persistSession(session);
   appendEvent(session, "harness.started", {
     harness: "claude-code",
-    workspace_dir: workspaceDir,
-    state_dir: stateDir,
+    workspace_dir: paths.workspaceDir,
+    state_dir: paths.stateDir,
+    home_dir: paths.homeDir,
+    claude_config_dir: paths.claudeConfigDir,
+    sandbox_mode: sandboxMode,
+    sdk_sandbox: sdkSandboxEnabled,
+    sandbox_uid: session.sandbox_uid,
     runtime: "claude-agent-sdk",
   });
 
@@ -337,6 +435,11 @@ function publicSession(session) {
     updated_at: session.updated_at,
     workspace_dir: session.workspace_dir,
     state_dir: session.state_dir,
+    home_dir: session.home_dir || null,
+    claude_config_dir: session.claude_config_dir || null,
+    sandbox_mode: sandboxMode,
+    sdk_sandbox: sdkSandboxEnabled,
+    sandbox_uid: session.sandbox_uid || null,
     model: session.model || null,
     permission_mode: session.permission_mode,
     native_session_id: session.native_session_id || null,
@@ -374,8 +477,11 @@ async function route(request, response) {
     return sendJson(response, authConfigured ? 200 : 503, {
       ready: authConfigured,
       auth_configured: authConfigured,
-      claude_config_dir: claudeConfigDir,
+      claude_config_dir: fallbackClaudeConfigDir,
       workspace_root: workspaceRoot,
+      sandbox_mode: sandboxMode,
+      sdk_sandbox: sdkSandboxEnabled,
+      unix_user_sandbox: unixUserSandboxEnabled,
     });
   }
 
@@ -473,6 +579,9 @@ async function route(request, response) {
     return sendJson(response, 200, {
       workspace_dir: session.workspace_dir,
       state_dir: session.state_dir,
+      home_dir: session.home_dir,
+      claude_config_dir: session.claude_config_dir,
+      tmp_dir: session.tmp_dir,
       artifacts_dir: join(sessionDir(sessionId), "artifacts"),
     });
   }

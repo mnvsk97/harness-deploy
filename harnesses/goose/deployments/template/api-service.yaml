@@ -18,38 +18,25 @@ image:
       set -euo pipefail
       mkdir -p /data/home/.config/goose/custom_providers /data/workspace
       chown -R goose:goose /data
-      cat > /data/home/.config/goose/custom_providers/tfy_gateway.json <<EOF
-      {
-        "name": "tfy_gateway",
-        "engine": "openai",
-        "display_name": "TrueFoundry Gateway",
-        "description": "TrueFoundry AI Gateway OpenAI-compatible endpoint",
-        "api_key_env": "TFY_GATEWAY_API_KEY",
-        "base_url": "$TFY_GATEWAY_BASE_URL",
-        "models": [
-          {
-            "name": "${GOOSE_MODEL}",
-            "context_limit": 200000
-          }
-        ],
-        "supports_streaming": true,
-        "requires_auth": true
-      }
-      EOF
-      chown goose:goose /data/home/.config/goose/custom_providers/tfy_gateway.json
-      exec /usr/bin/su -m goose -s /bin/bash -c "cd /data/workspace && exec goosed agent"
+      exec /usr/bin/su -m goose -s /bin/bash -c "export HOME=/data/home XDG_CONFIG_HOME=/data/home/.config XDG_CACHE_HOME=/data/home/.cache && cd /data/workspace && exec goosed agent"
 resources:
-  cpu_request: 2
-  cpu_limit: 4
-  memory_request: 4096
-  memory_limit: 8192
-  ephemeral_storage_request: 20000
-  ephemeral_storage_limit: 40000
+  cpu_request: 1
+  cpu_limit: 2
+  memory_request: 2048
+  memory_limit: 4096
+  ephemeral_storage_request: 8000
+  ephemeral_storage_limit: 16000
 replicas: 1
 env:
   HOME: /data/home
-  GOOSE_PROVIDER: tfy_gateway
+  XDG_CONFIG_HOME: /data/home/.config
+  XDG_CACHE_HOME: /data/home/.cache
+  GOOSE_DISABLE_KEYRING: "1"
+  GOOSE_PROVIDER: openai
   GOOSE_MODEL: ${GOOSE_MODEL}
+  OPENAI_HOST: tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-BASE-URL
+  OPENAI_BASE_PATH: /v1/chat/completions
+  OPENAI_API_KEY: tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-API-KEY
   GOOSE_HOST: 0.0.0.0
   GOOSE_PORT: "3000"
   GOOSE_TLS: "false"

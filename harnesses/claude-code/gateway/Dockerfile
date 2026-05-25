@@ -1,7 +1,7 @@
 FROM node:22-bookworm
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bubblewrap ca-certificates git make g++ python3 ripgrep && \
+    apt-get install -y --no-install-recommends bubblewrap ca-certificates git make g++ python3 ripgrep socat && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

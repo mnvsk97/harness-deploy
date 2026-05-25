@@ -24,6 +24,8 @@ env:
   CLAUDE_CONFIG_DIR: /data/claude
   CLAUDE_GATEWAY_STATE_DIR: /data/gateway-state
   CLAUDE_GATEWAY_MAX_EVENTS: "10000"
+  CLAUDE_GATEWAY_SANDBOX_MODE: unix-user
+  CLAUDE_GATEWAY_SDK_SANDBOX: "0"
   CLAUDE_MAX_TURNS: "20"
   WORKSPACE_ROOT: /data/workspaces
   CLAUDE_MODEL: testmodel/global.anthropic.claude-sonnet-4-6
