@@ -8,7 +8,7 @@ image:
   type: image
   image_uri: node:20-bookworm
   command: >-
-    bash -lc "npm install -g @anthropic-ai/claude-code@latest &&
+    bash -lc "npm install -g @anthropic-ai/claude-code@2.1.150 &&
     mkdir -p /home/node/.claude /workspace &&
     cd /workspace &&
     claude -p \"${CLAUDE_PROMPT:-Say exactly: claude-ok}\""

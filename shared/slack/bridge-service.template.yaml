@@ -1,10 +1,15 @@
 name: harness-slack-bridge
 type: service
-workspace_fqn: WORKSPACE_FQN_HERE
+workspace_fqn: ${TFY_WORKSPACE_FQN}
 image:
-  type: image
-  image_uri: YOUR_REGISTRY/harness-slack-bridge:latest
-  command: node server.js
+  type: build
+  build_source:
+    type: local
+    project_root_path: ${HARNESS_DEPLOY_ROOT}/shared/slack/bridge
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: "."
 resources:
   cpu_request: 0.5
   cpu_limit: 1
@@ -13,15 +18,44 @@ resources:
   ephemeral_storage_request: 1000
   ephemeral_storage_limit: 2000
 env:
+  PORT: "3000"
   SLACK_SOCKET_MODE: "true"
-  SLACK_BOT_TOKEN: "tfy-secret://YOUR_USER_OR_TEAM:slack-secrets:SLACK_BOT_TOKEN"
-  SLACK_APP_TOKEN: "tfy-secret://YOUR_USER_OR_TEAM:slack-secrets:SLACK_APP_TOKEN"
-  SLACK_SIGNING_SECRET: "tfy-secret://YOUR_USER_OR_TEAM:slack-secrets:SLACK_SIGNING_SECRET"
-  SLACK_ALLOWED_USERS: "tfy-secret://YOUR_USER_OR_TEAM:slack-secrets:SLACK_ALLOWED_USERS"
-  SLACK_ALLOWED_CHANNELS: "tfy-secret://YOUR_USER_OR_TEAM:slack-secrets:SLACK_ALLOWED_CHANNELS"
+  SLACK_BOT_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${SLACK_SECRET_GROUP}:SLACK_BOT_TOKEN"
+  SLACK_APP_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${SLACK_SECRET_GROUP}:SLACK_APP_TOKEN"
+  SLACK_SIGNING_SECRET: "tfy-secret://${TFY_SECRET_TENANT}:${SLACK_SECRET_GROUP}:SLACK_SIGNING_SECRET"
+  SLACK_ALLOWED_USERS: "tfy-secret://${TFY_SECRET_TENANT}:${SLACK_SECRET_GROUP}:SLACK_ALLOWED_USERS"
+  SLACK_ALLOWED_CHANNELS: "tfy-secret://${TFY_SECRET_TENANT}:${SLACK_SECRET_GROUP}:SLACK_ALLOWED_CHANNELS"
   SLACK_REQUIRE_MENTION: "true"
-  HARNESS_NAME: target-harness
-  HARNESS_API_URL: https://target-harness.YOUR_TFY_BASE_DOMAIN
-  HARNESS_API_TOKEN: "tfy-secret://YOUR_USER_OR_TEAM:target-harness-secrets:HARNESS_API_TOKEN"
+  SLACK_STRICT_MENTION: "true"
+  SLACK_FREE_RESPONSE_CHANNELS: ""
+  HARNESS_NAME: ${SLACK_BRIDGE_HARNESS_NAME}
+  HARNESS_API_URL: ${SLACK_BRIDGE_HARNESS_API_URL}
+  HARNESS_API_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${SLACK_BRIDGE_TARGET_SECRET_GROUP}:${SLACK_BRIDGE_TARGET_TOKEN_KEY}"
+  HARNESS_SESSION_CREATE_PATH: ${SLACK_BRIDGE_SESSION_CREATE_PATH}
+  HARNESS_SESSION_MESSAGE_PATH_TEMPLATE: ${SLACK_BRIDGE_SESSION_MESSAGE_PATH_TEMPLATE}
+  HARNESS_SESSION_EVENTS_PATH_TEMPLATE: ${SLACK_BRIDGE_SESSION_EVENTS_PATH_TEMPLATE}
+  HARNESS_POLL_EVENTS: ${SLACK_BRIDGE_POLL_EVENTS}
 ports: []
 replicas: 1
+rollout_strategy:
+  type: rolling_update
+  max_unavailable_percentage: 100
+  max_surge_percentage: 0
+liveness_probe:
+  config:
+    type: http
+    path: /healthz
+    port: 3000
+  initial_delay_seconds: 30
+  period_seconds: 15
+  timeout_seconds: 5
+  failure_threshold: 5
+readiness_probe:
+  config:
+    type: http
+    path: /readyz
+    port: 3000
+  initial_delay_seconds: 30
+  period_seconds: 15
+  timeout_seconds: 5
+  failure_threshold: 5

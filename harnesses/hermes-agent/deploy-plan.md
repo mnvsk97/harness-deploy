@@ -23,6 +23,8 @@
 - State: `Volume` mounted at `/opt/data`.
 - Credentials: `SecretGroup`.
 - Optional service port: `9119` dashboard or API server port if enabled.
+- Slack: native Hermes Slack adapter in a separate `Service` running outbound
+  Socket Mode with no exposed port.
 - Use one replica because state is file-backed and gateway-oriented.
 
 ## Deployment Steps
@@ -34,3 +36,9 @@
 5. Enable `dashboard-service.yaml` later if desired.
 6. Record whether external channel setup works.
 
+For Slack:
+
+1. Apply the Slack `SecretGroup`.
+2. Apply the Hermes state `Volume`.
+3. Deploy `deployments/template/slack-service.yaml` through
+   `make deploy-hermes-agent-slack`.

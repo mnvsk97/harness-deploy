@@ -1,0 +1,16 @@
+{
+  "name": "harness-slack-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "dependencies": {
+    "@slack/bolt": "^4.5.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

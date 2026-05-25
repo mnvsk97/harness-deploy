@@ -112,7 +112,7 @@ function readBody(request) {
 }
 
 function authorized(request) {
-  if (!gatewayToken) return true;
+  if (!gatewayToken) return false;
   const auth = request.headers.authorization || "";
   const headerToken = request.headers["x-claude-gateway-token"] || request.headers["x-codex-gateway-token"] || "";
   return auth === `Bearer ${gatewayToken}` || headerToken === gatewayToken;
@@ -247,8 +247,10 @@ async function route(request, response) {
   }
 
   if (url.pathname === "/readyz") {
-    return sendJson(response, 200, {
-      ready: true,
+    const authConfigured = Boolean(gatewayToken);
+    return sendJson(response, authConfigured ? 200 : 503, {
+      ready: authConfigured,
+      auth_configured: authConfigured,
       claude_config_dir: claudeConfigDir,
       workspace_root: workspaceRoot,
     });

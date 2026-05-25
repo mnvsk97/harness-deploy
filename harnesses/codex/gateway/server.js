@@ -226,7 +226,7 @@ function readBody(request) {
 }
 
 function authorized(request) {
-  if (!gatewayToken) return true;
+  if (!gatewayToken) return false;
   const auth = request.headers.authorization || "";
   const headerToken = request.headers["x-codex-gateway-token"] || "";
   return auth === `Bearer ${gatewayToken}` || headerToken === gatewayToken;
@@ -282,8 +282,10 @@ async function route(request, response) {
   }
 
   if (url.pathname === "/readyz") {
-    return sendJson(response, ready ? 200 : 503, {
-      ready,
+    const authConfigured = Boolean(gatewayToken);
+    return sendJson(response, ready && authConfigured ? 200 : 503, {
+      ready: ready && authConfigured,
+      auth_configured: Boolean(gatewayToken),
       lastError: lastError || null,
     });
   }

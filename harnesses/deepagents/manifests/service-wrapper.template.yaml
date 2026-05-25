@@ -7,7 +7,7 @@ image:
     type: git
     repo_url: https://github.com/YOUR_ORG/YOUR_DEEPAGENTS_WRAPPER_REPO
     branch_name: main
-    ref: main
+    ref: PINNED_COMMIT_SHA
   build_spec:
     type: tfy-python-buildpack
     python_version: "3.12"

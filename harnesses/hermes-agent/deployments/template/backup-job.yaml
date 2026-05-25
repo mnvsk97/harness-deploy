@@ -1,0 +1,42 @@
+name: hermes-state-backup
+type: job
+workspace_fqn: ${TFY_WORKSPACE_FQN}
+trigger:
+  type: manual
+retries: 0
+image:
+  type: image
+  image_uri: alpine:3.20
+  command: |
+    sh -ec '
+      apk add --no-cache curl tar coreutils >/dev/null
+      stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+      archive="/tmp/hermes-state-${stamp}.tgz"
+      tar -C /opt/data -czf "${archive}" .
+      bytes="$(wc -c < "${archive}" | tr -d " ")"
+      echo "created ${archive} (${bytes} bytes)"
+      if [ -n "${HERMES_BACKUP_UPLOAD_URL:-}" ]; then
+        curl --fail --silent --show-error --upload-file "${archive}" "${HERMES_BACKUP_UPLOAD_URL}"
+        echo "uploaded backup ${stamp}"
+      else
+        cp "${archive}" "/opt/data/backups/$(basename "${archive}")"
+        echo "stored backup at /opt/data/backups/$(basename "${archive}")"
+      fi
+    '
+resources:
+  cpu_request: 0.5
+  cpu_limit: 1
+  memory_request: 512
+  memory_limit: 1024
+  ephemeral_storage_request: 8000
+  ephemeral_storage_limit: 16000
+env:
+  # Optional: set this in the rendered manifest to a one-time upload URL or a
+  # tfy-secret:// reference that resolves to one. If omitted, the job writes a
+  # local archive under /opt/data/backups, which is useful for manual export but
+  # does not protect against volume loss.
+  HERMES_BACKUP_UPLOAD_URL: ""
+mounts:
+  - type: volume
+    mount_path: /opt/data
+    volume_fqn: tfy-volume://${TFY_WORKSPACE_FQN}:hermes-state-block

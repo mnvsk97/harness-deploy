@@ -6,3 +6,10 @@ Hermes ships a Dockerfile and compose setup. The durable runtime is the gateway
 process plus optional dashboard/API server. It stores state under `HERMES_HOME`,
 which defaults to `/opt/data` in Docker.
 
+This harness has two deployable service templates:
+
+- `deployments/template/api-service.yaml`: OpenAI-compatible API server mode.
+- `deployments/template/slack-service.yaml`: native Slack Socket Mode worker.
+
+The Slack worker uses Hermes' own Slack adapter rather than the generic bridge.
+It connects outbound to Slack and does not expose a Slack Events webhook.

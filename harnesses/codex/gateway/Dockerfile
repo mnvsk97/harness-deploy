@@ -1,6 +1,8 @@
 FROM node:22-bookworm
 
-RUN npm install -g @openai/codex@latest
+ARG CODEX_VERSION=0.133.0
+
+RUN npm install -g "@openai/codex@${CODEX_VERSION}"
 
 WORKDIR /app
 COPY package.json server.js ./

@@ -3,7 +3,7 @@
 FROM rust:1.82-bookworm AS builder
 
 ARG GOOSE_REPO=https://github.com/aaif-goose/goose
-ARG GOOSE_REF=main
+ARG GOOSE_REF=ba16de9738ec5bc319adbddeb9dd6523475fc7c0
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -20,7 +20,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-RUN git clone --depth 1 --branch "${GOOSE_REF}" "${GOOSE_REPO}" goose
+RUN git clone "${GOOSE_REPO}" goose && \
+    cd goose && \
+    git checkout "${GOOSE_REF}"
 WORKDIR /build/goose
 
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse

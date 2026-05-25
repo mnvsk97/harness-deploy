@@ -23,6 +23,14 @@ Use `tfy deploy -f` when a manifest asks TrueFoundry to build from source with
 `image.type: build` / `build_source`. Use `tfy apply -f` for prebuilt-image
 manifests, secret groups, volumes, and other declarative resources.
 
+## Public Safety
+
+These manifests are public examples, not a blanket production endorsement for
+every upstream harness. Before exposing a coding-agent service, configure
+gateway authentication, use TrueFoundry Secret Groups for credentials, pin build
+inputs, and add an isolated sandbox provider for untrusted workloads. See
+[SECURITY.md](SECURITY.md) for the project security policy.
+
 ## Folder Structure
 
 ```text
@@ -72,6 +80,8 @@ Deploy:
 make deploy-codex
 make deploy-claude-code
 make deploy-hermes-agent
+make deploy-hermes-agent-slack
+make deploy-slack-bridge
 make deploy-pi
 make deploy-goose
 ```
@@ -98,7 +108,7 @@ or outbound callbacks.
 | --- | --- | --- | --- |
 | Codex | `Service + Volume` HTTP/SSE app-server gateway; optional `Job` for `codex exec` | **Deployed and smoke-tested** | Sessions, fresh context isolation, returning to old sessions, TFY Gateway routing, workspace writes, and persisted volume state work. Uses `danger-full-access` inside the pod because Codex's inner Linux sandbox does not initialize reliably in this Kubernetes runtime. |
 | Claude Code | `Service + Volume` PTY-backed HTTP/SSE gateway; `SecretGroup` for gateway auth/model routing | **Template + gateway prototype** | Template exists and renders through `make deploy-claude-code`; needs the same depth of live smoke testing as Codex before calling it production-ready. |
-| Hermes Agent | `Service + Volume + SecretGroup` API-server mode | **Template + deployment candidate** | Template exists and renders through `make deploy-hermes-agent`; API-server-only path is the first target before Slack/Telegram/Discord channels. |
+| Hermes Agent | `Service + Volume + SecretGroup` API-server mode; optional native Slack worker | **Template + deployment candidate** | Template exists and renders through `make deploy-hermes-agent`; Slack Socket Mode renders through `make deploy-hermes-agent-slack`. |
 | Cursor Agent SDK | `Service` management/worker surface; optional demo service | **Manifest candidate** | Mapped to long-running service components; not yet live-verified in this repo. |
 | Pi | steppable `Service + Volume`; `Job` fallback | **Service template** | Uses `steppable-rpc` behind HTTP/SSE; external sandbox worker still needed before broad untrusted use. |
 | OpenClaw | `Service + Volume + SecretGroup` | **Manifest candidate** | Likely needs a standard HTTP harness exposure layer and channel secrets. |
@@ -120,14 +130,27 @@ or outbound callbacks.
 
 ## Slack Deployment
 
-Use [shared/slack](shared/slack/README.md) for Slack setup. The default pattern is Socket Mode: Slack connects outbound through `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`, so TrueFoundry does not need a public Slack Events webhook.
+Use [shared/slack](shared/slack/README.md) for Slack setup. The default pattern
+is Socket Mode: the deployed service connects outbound to Slack with
+`SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`, so TrueFoundry does not need a public
+Slack Events webhook.
 
-Native Slack harnesses, like Hermes Agent, can use the env block directly. CLI-first harnesses need a wrapper or bridge service that turns a Slack message into either an HTTP request or a TrueFoundry job run.
+Native Slack harnesses, like Hermes Agent, should use their own connector:
 
 ```bash
-python3 scripts/slackify_manifest.py \
-  harnesses/hermes-agent/manifests/service.yaml \
-  --out harnesses/hermes-agent/manifests/service.slack.yaml
+make deploy-hermes-agent-slack
 ```
+
+HTTP/session harnesses use the shared bridge. Point
+`SLACK_BRIDGE_HARNESS_API_URL` at the deployed harness gateway and set the target
+token secret group/key in `.env`, then run:
+
+```bash
+make deploy-slack-bridge
+```
+
+The bridge defaults to the standard `/sessions`,
+`/sessions/{session_id}/messages`, and `/sessions/{session_id}/events` contract.
+Override the path templates in `.env` for harness-specific APIs.
 
 For multi-service harnesses, see [shared/multi-service.md](shared/multi-service.md). The short version: keep each deployable component as its own manifest and apply them in a documented order. Do not use application sets.

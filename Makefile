@@ -7,11 +7,12 @@ include .env
 export
 endif
 
-.PHONY: render-codex deploy-codex render-claude-code deploy-claude-code render-hermes-agent deploy-hermes-agent render-pi deploy-pi render-goose deploy-goose clean-rendered
+.PHONY: render-codex deploy-codex render-claude-code deploy-claude-code render-hermes-agent deploy-hermes-agent render-hermes-agent-slack deploy-hermes-agent-slack render-slack-bridge deploy-slack-bridge render-pi deploy-pi render-goose deploy-goose clean-rendered
 
 GOOSE_MODEL ?= openai-main/gpt-5.5
 GOOSE_API_HOST ?= goose-api$(patsubst hermes-api%,%,$(HERMES_API_HOST))
 GOOSE_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$CODEX_GATEWAY_SECRET_GROUP $$GOOSE_API_HOST $$GOOSE_MODEL'
+HERMES_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$CODEX_GATEWAY_SECRET_GROUP $$HERMES_API_HOST'
 
 clean-rendered:
 	rm -rf .rendered
@@ -42,13 +43,36 @@ deploy-claude-code: render-claude-code
 render-hermes-agent:
 	@test -n "$(ENVSUBST)" || (echo "envsubst not found. Install gettext or add envsubst to PATH." && exit 1)
 	mkdir -p .rendered/hermes-agent
-	$(ENVSUBST) < harnesses/hermes-agent/deployments/template/volume.yaml > .rendered/hermes-agent/volume.yaml
-	$(ENVSUBST) < harnesses/hermes-agent/deployments/template/api-service.yaml > .rendered/hermes-agent/api-service.yaml
+	$(ENVSUBST) $(HERMES_ENVSUBST_VARS) < harnesses/hermes-agent/deployments/template/volume.yaml > .rendered/hermes-agent/volume.yaml
+	$(ENVSUBST) $(HERMES_ENVSUBST_VARS) < harnesses/hermes-agent/deployments/template/api-service.yaml > .rendered/hermes-agent/api-service.yaml
+	$(ENVSUBST) $(HERMES_ENVSUBST_VARS) < harnesses/hermes-agent/deployments/template/backup-job.yaml > .rendered/hermes-agent/backup-job.yaml
+	$(ENVSUBST) $(HERMES_ENVSUBST_VARS) < harnesses/hermes-agent/deployments/template/slack-service.yaml > .rendered/hermes-agent/slack-service.yaml
 
 deploy-hermes-agent: render-hermes-agent
 	@test -n "$(TFY)" || (echo "tfy not found. Install TrueFoundry CLI or add tfy to PATH." && exit 1)
 	$(TFY) apply -f .rendered/hermes-agent/volume.yaml
 	$(TFY) deploy -f .rendered/hermes-agent/api-service.yaml --no-wait --force
+
+smoke-hermes-agent:
+	@test -n "$(HERMES_API_TOKEN)" || (echo "HERMES_API_TOKEN is required. Use the CODEX-GATEWAY-BEARER-TOKEN value." && exit 1)
+	HERMES_API_HOST="$(HERMES_API_HOST)" HERMES_API_TOKEN="$(HERMES_API_TOKEN)" \
+		bash harnesses/hermes-agent/deployments/template/smoke-test.sh
+
+render-hermes-agent-slack: render-hermes-agent
+
+deploy-hermes-agent-slack: render-hermes-agent-slack
+	@test -n "$(TFY)" || (echo "tfy not found. Install TrueFoundry CLI or add tfy to PATH." && exit 1)
+	$(TFY) apply -f .rendered/hermes-agent/volume.yaml
+	$(TFY) deploy -f .rendered/hermes-agent/slack-service.yaml --no-wait --force
+
+render-slack-bridge:
+	@test -n "$(ENVSUBST)" || (echo "envsubst not found. Install gettext or add envsubst to PATH." && exit 1)
+	mkdir -p .rendered/slack
+	$(ENVSUBST) < shared/slack/bridge-service.template.yaml > .rendered/slack/bridge-service.yaml
+
+deploy-slack-bridge: render-slack-bridge
+	@test -n "$(TFY)" || (echo "tfy not found. Install TrueFoundry CLI or add tfy to PATH." && exit 1)
+	$(TFY) deploy -f .rendered/slack/bridge-service.yaml --no-wait --force
 
 render-pi:
 	@test -n "$(ENVSUBST)" || (echo "envsubst not found. Install gettext or add envsubst to PATH." && exit 1)

@@ -1,0 +1,69 @@
+name: hermes-slack
+type: service
+workspace_fqn: ${TFY_WORKSPACE_FQN}
+image:
+  type: build
+  build_source:
+    type: git
+    repo_url: https://github.com/NousResearch/hermes-agent
+    branch_name: main
+    ref: 2b768535c9ba2a8d3b2c23fae1ee3a2f827f7f49
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: .
+    command: |
+      bash -lc 'mkdir -p /opt/data/home && chown -R hermes:hermes /opt/data && cat > /opt/data/config.yaml <<EOF
+      custom_providers:
+        - name: tfy-gateway
+          base_url: ${TFY_BASE_URL}
+          key_env: TFY_API_KEY
+          api_mode: chat_completions
+      model:
+        provider: custom:tfy-gateway
+        default: openai-main/gpt-5.5
+      toolsets:
+        - hermes-cli
+      platforms:
+        slack:
+          enabled: true
+          require_mention: true
+          strict_mention: true
+      platform_toolsets:
+        slack:
+          - hermes-slack
+      EOF
+      chown hermes:hermes /opt/data/config.yaml && exec /usr/bin/su -m hermes -s /bin/bash -c "export HOME=/opt/data/home XDG_CONFIG_HOME=/opt/data/home/.config XDG_CACHE_HOME=/opt/data/home/.cache && source /opt/hermes/.venv/bin/activate && exec hermes gateway run"'
+resources:
+  cpu_request: 1
+  cpu_limit: 2
+  memory_request: 2048
+  memory_limit: 4096
+  ephemeral_storage_request: 4000
+  ephemeral_storage_limit: 8000
+replicas: 1
+env:
+  HOME: /opt/data/home
+  HERMES_HOME: /opt/data
+  TFY_BASE_URL: "tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-BASE-URL"
+  TFY_API_KEY: "tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-API-KEY"
+  HERMES_INFERENCE_PROVIDER: custom:tfy-gateway
+  HERMES_INFERENCE_MODEL: openai-main/gpt-5.5
+  SLACK_SOCKET_MODE: "true"
+  SLACK_BOT_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${SLACK_SECRET_GROUP}:SLACK_BOT_TOKEN"
+  SLACK_APP_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${SLACK_SECRET_GROUP}:SLACK_APP_TOKEN"
+  SLACK_SIGNING_SECRET: "tfy-secret://${TFY_SECRET_TENANT}:${SLACK_SECRET_GROUP}:SLACK_SIGNING_SECRET"
+  SLACK_ALLOWED_USERS: "tfy-secret://${TFY_SECRET_TENANT}:${SLACK_SECRET_GROUP}:SLACK_ALLOWED_USERS"
+  SLACK_ALLOWED_CHANNELS: "tfy-secret://${TFY_SECRET_TENANT}:${SLACK_SECRET_GROUP}:SLACK_ALLOWED_CHANNELS"
+  SLACK_REQUIRE_MENTION: "true"
+  SLACK_STRICT_MENTION: "true"
+  SLACK_FREE_RESPONSE_CHANNELS: ""
+ports: []
+mounts:
+  - type: volume
+    mount_path: /opt/data
+    volume_fqn: tfy-volume://${TFY_WORKSPACE_FQN}:hermes-state-block
+rollout_strategy:
+  type: rolling_update
+  max_surge_percentage: 0
+  max_unavailable_percentage: 100

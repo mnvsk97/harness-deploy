@@ -10,7 +10,7 @@ image:
     type: git
     repo_url: https://github.com/block/goose
     branch_name: main
-    ref: main
+    ref: PINNED_COMMIT_SHA
   build_spec:
     type: dockerfile
     dockerfile_path: Dockerfile

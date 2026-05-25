@@ -3,7 +3,7 @@ type: service
 workspace_fqn: WORKSPACE_FQN_HERE
 image:
   type: image
-  image_uri: YOUR_REGISTRY/goose-goosed:latest
+  image_uri: YOUR_REGISTRY/goose-goosed:TAG_OR_DIGEST
   command: goosed agent
 resources:
   cpu_request: 2
