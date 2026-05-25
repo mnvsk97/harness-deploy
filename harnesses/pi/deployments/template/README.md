@@ -45,7 +45,7 @@ curl -N https://$PI_GATEWAY_HOST/v1/sessions/$SESSION_ID/stream \
 
 Notes:
 
-- `GATEWAY_BEARER_TOKEN` uses the Pi gateway bearer-token secret.
+- `GATEWAY_BEARER_TOKEN` reuses the Codex gateway bearer-token secret.
 - Model calls are routed through the TrueFoundry Gateway secret group.
 - The service uses a block volume and one replica because the current gateway
   persists snapshots, event logs, Pi state, and workspace files on the mounted

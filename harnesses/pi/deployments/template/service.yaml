@@ -6,6 +6,7 @@ image:
   build_source:
     type: local
     project_root_path: ${HARNESS_DEPLOY_ROOT}/harnesses/pi/gateway
+    local_build: false
   build_spec:
     type: dockerfile
     dockerfile_path: Dockerfile
@@ -31,10 +32,10 @@ env:
   PI_MODEL_BASE_URL: "tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-BASE-URL"
   PI_MODEL_API_KEY: "tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-API-KEY"
   PI_MODEL_REASONING: "true"
-  PI_THINKING: ${PI_THINKING}
+  PI_THINKING: "${PI_THINKING}"
   PI_TELEMETRY: "0"
   PI_SKIP_VERSION_CHECK: "1"
-  GATEWAY_BEARER_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${PI_GATEWAY_SECRET_GROUP}:PI-GATEWAY-BEARER-TOKEN"
+  GATEWAY_BEARER_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${CODEX_GATEWAY_SECRET_GROUP}:CODEX-GATEWAY-BEARER-TOKEN"
 ports:
   - port: 3001
     protocol: TCP
