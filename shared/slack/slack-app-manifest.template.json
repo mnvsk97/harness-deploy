@@ -1,0 +1,51 @@
+{
+  "_metadata": {
+    "major_version": 1,
+    "minor_version": 0
+  },
+  "display_information": {
+    "name": "${SLACK_BRIDGE_APP_NAME}",
+    "description": "Slack app for ${SLACK_BRIDGE_HARNESS_NAME} on TrueFoundry"
+  },
+  "features": {
+    "app_home": {
+      "home_tab_enabled": false,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "bot_user": {
+      "display_name": "${SLACK_BRIDGE_APP_NAME}",
+      "always_online": true
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "app_mentions:read",
+        "channels:history",
+        "channels:read",
+        "chat:write",
+        "groups:history",
+        "im:history",
+        "im:read",
+        "im:write",
+        "reactions:write",
+        "users:read"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://${SLACK_BRIDGE_HOST}/slack/events",
+      "bot_events": [
+        "app_mention",
+        "message.im",
+        "message.channels",
+        "message.groups"
+      ]
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

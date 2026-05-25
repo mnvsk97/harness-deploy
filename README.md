@@ -79,8 +79,8 @@ Deploy:
 ```bash
 make deploy-codex
 make deploy-claude-code
+make deploy-claude-code-slack
 make deploy-hermes-agent
-make deploy-hermes-agent-slack
 make deploy-slack-bridge
 make deploy-pi
 make deploy-goose
@@ -108,7 +108,7 @@ or outbound callbacks.
 | --- | --- | --- | --- |
 | Codex | `Service + Volume` HTTP/SSE app-server gateway; optional `Job` for `codex exec` | **Deployed and smoke-tested** | Sessions, fresh context isolation, returning to old sessions, TFY Gateway routing, workspace writes, and persisted volume state work. Uses `danger-full-access` inside the pod because Codex's inner Linux sandbox does not initialize reliably in this Kubernetes runtime. |
 | Claude Code | `Service + Volume` PTY-backed HTTP/SSE gateway; `SecretGroup` for gateway auth/model routing | **Template + gateway prototype** | Template exists and renders through `make deploy-claude-code`; needs the same depth of live smoke testing as Codex before calling it production-ready. |
-| Hermes Agent | `Service + Volume + SecretGroup` API-server mode; optional native Slack worker | **Template + deployment candidate** | Template exists and renders through `make deploy-hermes-agent`; Slack Socket Mode renders through `make deploy-hermes-agent-slack`. |
+| Hermes Agent | `Service + Volume + SecretGroup` API-server mode | **Template + deployment candidate** | Template exists and renders through `make deploy-hermes-agent`. Native Slack worker mode is not supported in this project because Slack integrations must use HTTP Events API. |
 | Cursor Agent SDK | `Service` management/worker surface; optional demo service | **Manifest candidate** | Mapped to long-running service components; not yet live-verified in this repo. |
 | Pi | steppable `Service + Volume`; `Job` fallback | **Service template** | Uses `steppable-rpc` behind HTTP/SSE; external sandbox worker still needed before broad untrusted use. |
 | OpenClaw | `Service + Volume + SecretGroup` | **Manifest candidate** | Likely needs a standard HTTP harness exposure layer and channel secrets. |
@@ -131,23 +131,20 @@ or outbound callbacks.
 ## Slack Deployment
 
 Use [shared/slack](shared/slack/README.md) for Slack setup. The default pattern
-is Socket Mode: the deployed service connects outbound to Slack with
-`SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`, so TrueFoundry does not need a public
-Slack Events webhook.
+is HTTP Events API: Slack posts events to the TrueFoundry-hosted bridge at
+`POST /slack/events`. Socket Mode is always off; do not configure
+`SLACK_APP_TOKEN`.
 
-Native Slack harnesses, like Hermes Agent, should use their own connector:
-
-```bash
-make deploy-hermes-agent-slack
-```
-
-HTTP/session harnesses use the shared bridge. Point
-`SLACK_BRIDGE_HARNESS_API_URL` at the deployed harness gateway and set the target
-token secret group/key in `.env`, then run:
+Deploy the target harness gateway first. Point `SLACK_BRIDGE_HARNESS_API_URL` at
+that gateway, set `SLACK_BRIDGE_HOST`, and set the target token secret group/key
+in `.env`. Then render the Slack app manifest and deploy the bridge:
 
 ```bash
+make render-slack-bridge
 make deploy-slack-bridge
 ```
+
+Use `.rendered/slack/slack-app-manifest.json` to create or update the Slack app.
 
 The bridge defaults to the standard `/sessions`,
 `/sessions/{session_id}/messages`, and `/sessions/{session_id}/events` contract.

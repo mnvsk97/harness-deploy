@@ -24,7 +24,7 @@ For the common deployed-agent API, lifecycle, event, and state contract, see
   required.
 - Do not expose WebSocket-first surfaces on TrueFoundry. Prefer HTTP,
   Server-Sent Events, polling, webhooks, queued jobs, or outbound callbacks.
-- Use `shared/slack` to add Slack Socket Mode env vars or a bridge service.
+- Use `shared/slack` for the Slack HTTP Events bridge. Socket Mode is not used.
 - Use `tfy apply` for prebuilt-image manifests and supported declarative resources.
 - Use `tfy deploy` for source-build manifests that include `build_source`.
 

@@ -1,58 +1,60 @@
-# Slack Deployment Pattern
+# Slack HTTP Events Deployment Pattern
 
-This repo standardizes on Slack Socket Mode for harness-to-Slack deployment.
-That mirrors Hermes Agent's production path: a long-running worker connects
-outbound to Slack using `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`, so TrueFoundry
-does not need to expose a Slack Events webhook. This is not a TrueFoundry-hosted
-WebSocket protocol surface; it is an outbound channel connector.
+This repo uses Slack HTTP Events API for harness-to-Slack deployment. Socket
+Mode is always off for this project; do not configure `SLACK_APP_TOKEN`.
+
+## TrueFoundry Components
+
+- `Service`: runs the Slack HTTP bridge and exposes `POST /slack/events`.
+- `SecretGroup`: stores Slack credentials, allowlists, and the target harness
+  API token.
+- `Volume`: not used by the generic bridge template.
 
 ## Required Slack App Setup
 
-Create a Slack app with:
-
-- Socket Mode enabled.
-- App-level token with `connections:write`; store as `SLACK_APP_TOKEN`.
-- Bot token with at least `chat:write`, `app_mentions:read`, `channels:history`,
-  `channels:read`, `groups:history`, `im:history`, `im:read`, `im:write`,
-  `users:read`, and file scopes if attachments matter.
-- Event subscriptions for `message.im`, `message.channels`, `message.groups`,
-  and `app_mention`.
-- App Home messages enabled for DMs.
-
-## Native vs Bridge Mode
-
-Native Slack harnesses can consume the shared env block directly:
-
-- Hermes Agent
-- OpenClaw, if its Slack channel is enabled in the installed build
-
-Other harnesses need a wrapper/bridge:
-
-- HTTP/session harnesses: deploy the shared Slack bridge that calls the harness
-  API.
-- CLI harnesses: deploy a Slack bridge that creates TrueFoundry job runs or calls
-  a queue-backed worker wrapper.
-
-## Hermes Native Slack
-
-Hermes already ships a Slack adapter under `gateway/platforms/slack.py`. The
-important behaviors to preserve are:
-
-- Socket Mode with `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`.
-- allowlists via `SLACK_ALLOWED_USERS` and `SLACK_ALLOWED_CHANNELS`.
-- mention gating via `SLACK_REQUIRE_MENTION` and `SLACK_STRICT_MENTION`.
-- Slack threads as the conversation boundary.
-
-Render and deploy the Hermes-native Slack worker:
+Create or update a Slack app from the rendered manifest:
 
 ```bash
-make deploy-hermes-agent-slack
+make render-slack-bridge
 ```
 
-## Shared Bridge
+Then paste `.rendered/slack/slack-app-manifest.json` into Slack's app manifest
+editor. The manifest sets Socket Mode off and points Events API traffic to:
 
-The bridge lives in `shared/slack/bridge`. It is for harnesses that expose the
-standard HTTP session surface:
+```text
+https://${SLACK_BRIDGE_HOST}/slack/events
+```
+
+The Slack app needs these bot scopes:
+
+- `chat:write`
+- `app_mentions:read`
+- `channels:history`
+- `channels:read`
+- `groups:history`
+- `im:history`
+- `im:read`
+- `im:write`
+- `reactions:write`
+- `users:read`
+
+## Operator Flow
+
+1. Deploy the target harness gateway, for example `make deploy-codex`.
+2. Set `.env` values including `SLACK_BRIDGE_HOST` and
+   `SLACK_BRIDGE_HARNESS_API_URL`.
+3. Run `make render-slack-bridge`.
+4. Create or update the Slack app from
+   `.rendered/slack/slack-app-manifest.json`.
+5. Put `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` in the Slack
+   `SecretGroup`; put the target harness token in the configured target
+   `SecretGroup`.
+6. Run `make deploy-slack-bridge`.
+
+## Bridge Configuration
+
+The bridge lives in `shared/slack/bridge`. It is for harnesses that expose an
+HTTP session surface:
 
 - `POST /sessions`
 - `POST /sessions/{session_id}/messages`
@@ -61,6 +63,8 @@ standard HTTP session surface:
 Configure these `.env` values:
 
 ```bash
+SLACK_BRIDGE_HOST=codex-slack.example.truefoundry.cloud
+SLACK_BRIDGE_SERVICE_NAME=harness-slack-bridge
 SLACK_BRIDGE_HARNESS_NAME=codex
 SLACK_BRIDGE_HARNESS_API_URL=https://codex-http-gateway.example.truefoundry.cloud
 SLACK_BRIDGE_TARGET_SECRET_GROUP=codex-gateway-secrets
@@ -69,27 +73,17 @@ SLACK_BRIDGE_SESSION_CREATE_PATH=/sessions
 SLACK_BRIDGE_SESSION_MESSAGE_PATH_TEMPLATE=/sessions/{session_id}/messages
 SLACK_BRIDGE_SESSION_EVENTS_PATH_TEMPLATE=/sessions/{session_id}/events
 SLACK_BRIDGE_POLL_EVENTS=true
+SLACK_UPDATE_THROTTLE_MS=1500
+SLACK_REACTION_RUNNING=eyes
+SLACK_REACTION_SUCCESS=white_check_mark
+SLACK_REACTION_FAILURE=x
+SLACK_PROCESSED_EVENT_TTL_MS=86400000
+SLACK_PROCESSED_EVENT_LIMIT=5000
 ```
 
-Deploy:
+Set `SLACK_BRIDGE_POLL_EVENTS=false` for harnesses that do not expose a JSON
+event-list endpoint yet.
 
-```bash
-tfy apply -f shared/slack/secret-group.example.yaml
-make deploy-slack-bridge
-```
-
-The bridge keeps an in-memory Slack-thread-to-harness-session map. For
-production use, keep one replica unless the bridge is extended with shared
-session storage.
-
-Set `SLACK_BRIDGE_POLL_EVENTS=false` for harnesses that only expose Server-Sent
-Events and do not have a JSON event-list endpoint yet. The message will still
-create or continue the harness session, but Slack will only show the session
-start/status messages until the harness gets a JSON polling endpoint or the
-bridge is extended with SSE consumption.
-
-## Legacy Env Injection
-
-`scripts/slackify_manifest.py` is still useful for native Slack harnesses that
-already know what to do with Hermes-style Slack env vars. It only injects env
-vars; it does not create a Slack adapter for a harness that lacks one.
+For accepted Slack events, the bridge maps one Slack thread to one harness
+session, reacts to the user message while the run is active, and edits one
+threaded bot reply with `chat.update` as harness events are polled.

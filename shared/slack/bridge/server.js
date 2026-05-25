@@ -1,6 +1,6 @@
 import http from "node:http";
 import crypto from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { WebClient } from "@slack/web-api";
 
@@ -25,6 +25,12 @@ const requestTimeoutMs = Number(process.env.HARNESS_REQUEST_TIMEOUT_MS || 300000
 const eventPollTimeoutMs = Number(process.env.HARNESS_EVENT_POLL_TIMEOUT_MS || 10000);
 const stateDir = process.env.SLACK_BRIDGE_STATE_DIR || "/data/slack-bridge";
 const statePath = join(stateDir, "state.json");
+const updateThrottleMs = Number(process.env.SLACK_UPDATE_THROTTLE_MS || 1500);
+const runningReaction = process.env.SLACK_REACTION_RUNNING || "eyes";
+const successReaction = process.env.SLACK_REACTION_SUCCESS || "white_check_mark";
+const failureReaction = process.env.SLACK_REACTION_FAILURE || "x";
+const processedSlackEventTtlMs = Number(process.env.SLACK_PROCESSED_EVENT_TTL_MS || 24 * 60 * 60 * 1000);
+const processedSlackEventLimit = Number(process.env.SLACK_PROCESSED_EVENT_LIMIT || 5000);
 
 let botUserId = "";
 let botUserName = "";
@@ -33,9 +39,18 @@ let lastError = "";
 
 const sessions = new Map();
 const deliveredEvents = new Map();
-const processedSlackEvents = new Set();
+const processedSlackEvents = new Map();
 const inFlightSlackEvents = new Set();
+const activePolls = new Set();
 const slack = new WebClient(slackBotToken);
+const metrics = {
+  processedSlackEvents: 0,
+  dedupedSlackEvents: 0,
+  lastSlackEventAt: null,
+  lastSessionId: null,
+  lastUpdateAt: null,
+  resumedActiveRuns: 0,
+};
 
 mkdirSync(stateDir, { recursive: true });
 loadState();
@@ -53,15 +68,30 @@ function boolEnv(key, defaultValue) {
 }
 
 function csvSet(raw) {
-  return new Set(String(raw || "").split(",").map((item) => item.trim()).filter(Boolean));
+  const values = new Set(String(raw || "").split(",").map((item) => item.trim()).filter(Boolean));
+  if (values.has("*")) return new Set();
+  return values;
 }
 
 function loadState() {
   if (!existsSync(statePath)) return;
   try {
     const state = JSON.parse(readFileSync(statePath, "utf8"));
-    for (const [key, value] of Object.entries(state.sessions || {})) sessions.set(key, value);
+    for (const [key, value] of Object.entries(state.sessions || {})) {
+      const record = typeof value === "string" ? { sessionId: value } : { ...value };
+      if (!record.deliveredEventIds) record.deliveredEventIds = [];
+      sessions.set(key, record);
+      if (record.sessionId && !deliveredEvents.has(record.sessionId)) {
+        deliveredEvents.set(record.sessionId, new Set(record.deliveredEventIds || []));
+      }
+    }
     for (const [key, values] of Object.entries(state.deliveredEvents || {})) deliveredEvents.set(key, new Set(values));
+    const processed = Array.isArray(state.processedSlackEvents) ? state.processedSlackEvents : [];
+    for (const item of processed) {
+      if (typeof item === "string") processedSlackEvents.set(item, Date.now());
+      else if (item?.id) processedSlackEvents.set(item.id, Number(item.at || Date.now()));
+    }
+    pruneProcessedSlackEvents();
   } catch (error) {
     lastError = `Failed to load state: ${error.message}`;
   }
@@ -71,8 +101,43 @@ function persistState() {
   const state = {
     sessions: Object.fromEntries(sessions.entries()),
     deliveredEvents: Object.fromEntries([...deliveredEvents.entries()].map(([key, value]) => [key, [...value].slice(-1000)])),
+    processedSlackEvents: serializeProcessedSlackEvents(),
   };
-  writeFileSync(statePath, JSON.stringify(state, null, 2));
+  const tmpPath = `${statePath}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(state, null, 2));
+  renameSync(tmpPath, statePath);
+}
+
+function pruneProcessedSlackEvents(now = Date.now()) {
+  for (const [id, at] of processedSlackEvents.entries()) {
+    if (now - at > processedSlackEventTtlMs) processedSlackEvents.delete(id);
+  }
+  if (processedSlackEvents.size <= processedSlackEventLimit) return;
+  const keep = new Set([...processedSlackEvents.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, processedSlackEventLimit)
+    .map(([id]) => id));
+  for (const id of processedSlackEvents.keys()) {
+    if (!keep.has(id)) processedSlackEvents.delete(id);
+  }
+}
+
+function serializeProcessedSlackEvents() {
+  pruneProcessedSlackEvents();
+  return [...processedSlackEvents.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, processedSlackEventLimit)
+    .map(([id, at]) => ({ id, at }));
+}
+
+function hasProcessedSlackEvent(id) {
+  pruneProcessedSlackEvents();
+  return processedSlackEvents.has(id);
+}
+
+function rememberProcessedSlackEvent(id) {
+  processedSlackEvents.set(id, Date.now());
+  pruneProcessedSlackEvents();
 }
 
 function timingSafeEqual(a, b) {
@@ -117,6 +182,18 @@ function sendJson(response, statusCode, body) {
   response.end(JSON.stringify(body));
 }
 
+function sessionIdFromRecord(record) {
+  if (!record) return null;
+  if (typeof record === "string") return record;
+  return record.sessionId || null;
+}
+
+function normalizedSessionRecord(record, fallback = {}) {
+  if (record && typeof record === "object") return { ...fallback, ...record };
+  if (typeof record === "string") return { ...fallback, sessionId: record };
+  return { ...fallback };
+}
+
 function allowed(event) {
   const user = event.user || "";
   const channel = event.channel || "";
@@ -145,6 +222,14 @@ function sessionKey(event) {
   const channel = event.channel || "unknown-channel";
   const root = event.thread_ts || event.ts || event.client_msg_id || "root";
   return `${team}:${channel}:${root}`;
+}
+
+function stableSlackEventId(envelope) {
+  const event = envelope.event || {};
+  const team = envelope.team_id || event.team || event.team_id || "unknown-team";
+  const channel = event.channel || "unknown-channel";
+  const ts = event.client_msg_id || event.ts || event.event_ts || envelope.event_time || envelope.event_id || "unknown-ts";
+  return `${team}:${channel}:${ts}`;
 }
 
 function threadTs(event) {
@@ -205,12 +290,83 @@ function eventText(event) {
   return "";
 }
 
+function eventTerminalStatus(event) {
+  const type = event.type || "";
+  const status = event.payload?.status || event.status || "";
+  if (type === "run.completed") return "completed";
+  if (type === "run.failed") return "failed";
+  if (type === "run.cancelled") return "cancelled";
+  if (type === "harness.status" && ["idle", "waiting_for_input"].includes(status)) return status;
+  if (type === "harness.status" && ["failed", "cancelled"].includes(status)) return status;
+  return "";
+}
+
 async function post(channel, text, thread) {
-  await slack.chat.postMessage({
+  return slack.chat.postMessage({
     channel,
     text: text.slice(0, 39000),
     thread_ts: thread,
   });
+}
+
+async function updateBotMessage(record, text, { force = false } = {}) {
+  const now = Date.now();
+  const rendered = String(text || "").trim() || "Working...";
+  if (!force && record.lastUpdateAt && now - record.lastUpdateAt < updateThrottleMs) return;
+  if (!force && record.lastRenderText === rendered) return;
+
+  try {
+    if (!record.botMessageTs) throw new Error("Missing bot message timestamp");
+    await slack.chat.update({
+      channel: record.channel,
+      ts: record.botMessageTs,
+      text: rendered.slice(0, 39000),
+    });
+  } catch (error) {
+    const slackError = error?.data?.error || "";
+    const canRecoverWithNewMessage = !record.botMessageTs || [
+      "cant_update_message",
+      "message_not_found",
+      "missing_bot_message_timestamp",
+    ].includes(slackError) || error.message === "Missing bot message timestamp";
+    if (!canRecoverWithNewMessage) throw error;
+
+    const created = await post(record.channel, rendered, record.slackThread);
+    record.botMessageTs = created.ts || record.botMessageTs;
+  }
+
+  record.lastRenderText = rendered;
+  record.lastUpdateAt = now;
+  metrics.lastUpdateAt = new Date(now).toISOString();
+  persistState();
+}
+
+async function addReaction(channel, timestamp, name) {
+  if (!channel || !timestamp || !name) return;
+  try {
+    await slack.reactions.add({ channel, timestamp, name });
+  } catch (error) {
+    if (!["already_reacted", "missing_scope"].includes(error?.data?.error)) lastError = error.message;
+  }
+}
+
+async function removeReaction(channel, timestamp, name) {
+  if (!channel || !timestamp || !name) return;
+  try {
+    await slack.reactions.remove({ channel, timestamp, name });
+  } catch (error) {
+    if (!["no_reaction", "missing_scope"].includes(error?.data?.error)) lastError = error.message;
+  }
+}
+
+async function markRunning(record, timestamp) {
+  await addReaction(record.channel, timestamp || record.originalMessageTs, runningReaction);
+}
+
+async function markComplete(record, timestamp, failed = false) {
+  const targetTs = timestamp || record.originalMessageTs;
+  await removeReaction(record.channel, targetTs, runningReaction);
+  await addReaction(record.channel, targetTs, failed ? failureReaction : successReaction);
 }
 
 function shouldHandleMessage(event) {
@@ -220,7 +376,7 @@ function shouldHandleMessage(event) {
   const isDm = channel.startsWith("D");
   const isFree = freeResponseChannels.has(channel);
   const isMentioned = mentioned(text);
-  const existingSession = sessions.get(sessionKey(event));
+  const existingSession = sessionIdFromRecord(sessions.get(sessionKey(event)));
   const isThreadReply = Boolean(event.thread_ts);
 
   if (!isDm && requireMention && !isFree) {
@@ -233,29 +389,57 @@ function shouldHandleMessage(event) {
   return Boolean(cleanSlackText(text));
 }
 
-function slackEventId(envelope) {
-  const event = envelope.event || {};
-  return envelope.event_id || event.client_msg_id || `${event.channel}:${event.ts}:${event.type}`;
-}
-
 async function handleSlackMessage(envelope) {
   const event = envelope.event || envelope;
-  const dedupKey = slackEventId(envelope);
-  if (processedSlackEvents.has(dedupKey) || inFlightSlackEvents.has(dedupKey)) return;
-  inFlightSlackEvents.add(dedupKey);
-
   try {
     if (!shouldHandleMessage(event)) return;
+
+    const dedupKey = stableSlackEventId(envelope);
+    if (hasProcessedSlackEvent(dedupKey) || inFlightSlackEvents.has(dedupKey)) {
+      metrics.dedupedSlackEvents += 1;
+      return;
+    }
+    inFlightSlackEvents.add(dedupKey);
+    rememberProcessedSlackEvent(dedupKey);
+    persistState();
 
     const channel = event.channel;
     const message = cleanSlackText(event.text || "");
     const slackThread = threadTs(event);
     const key = sessionKey({ ...event, team: envelope.team_id || event.team });
-    const existingSession = sessions.get(key);
+    const existingRecord = sessions.get(key);
+    const record = normalizedSessionRecord(existingRecord, {
+      channel,
+      slackThread,
+      originalMessageTs: event.ts,
+      botMessageTs: null,
+      lastRenderText: "",
+      lastUpdateAt: 0,
+      deliveredEventIds: [],
+    });
+    record.channel = record.channel || channel;
+    record.slackThread = record.slackThread || slackThread;
+    if (record.originalMessageTs !== event.ts) {
+      record.originalMessageTs = event.ts;
+      record.botMessageTs = null;
+      record.lastRenderText = "";
+      record.lastUpdateAt = 0;
+    }
 
-    await post(channel, existingSession ? `Sending to ${harnessName}...` : `Starting ${harnessName} session...`, slackThread);
+    await markRunning(record, event.ts);
+    if (!record.botMessageTs) {
+      const created = await post(channel, existingRecord ? `Sending to ${harnessName}...` : `Starting ${harnessName} session...`, slackThread);
+      record.botMessageTs = created.ts || null;
+      record.lastRenderText = existingRecord ? `Sending to ${harnessName}...` : `Starting ${harnessName} session...`;
+      record.lastUpdateAt = Date.now();
+      metrics.lastUpdateAt = new Date(record.lastUpdateAt).toISOString();
+    } else {
+      await updateBotMessage(record, `Sending to ${harnessName}...`, { force: true });
+    }
+    sessions.set(key, record);
+    persistState();
 
-    let sessionId = existingSession;
+    let sessionId = record.sessionId;
     if (!sessionId) {
       const created = await harnessFetch(createPath, {
         method: "POST",
@@ -263,55 +447,112 @@ async function handleSlackMessage(envelope) {
       });
       sessionId = extractSessionId(created);
       if (!sessionId) throw new Error("Harness response did not include a session id");
-      sessions.set(key, sessionId);
+      record.sessionId = sessionId;
+      metrics.lastSessionId = sessionId;
+      sessions.set(key, record);
       persistState();
-      await post(channel, `Session \`${sessionId}\` is running.`, slackThread);
     } else {
+      metrics.lastSessionId = sessionId;
       await harnessFetch(templatePath(messagePathTemplate, sessionId), {
         method: "POST",
         body: { message, source: "slack", slack: { channel, user: event.user, thread_ts: slackThread, team: envelope.team_id } },
       });
     }
 
-    if (pollEvents) await pollAndPostEvents({ sessionId, channel, slackThread });
-    processedSlackEvents.add(dedupKey);
-    if (processedSlackEvents.size > 5000) processedSlackEvents.clear();
+    metrics.processedSlackEvents += 1;
+    metrics.lastSlackEventAt = new Date().toISOString();
+    if (pollEvents) {
+      record.activeRun = {
+        sessionId,
+        userMessageTs: event.ts,
+        startedAt: new Date().toISOString(),
+      };
+      sessions.set(key, record);
+      persistState();
+      await pollAndPostEvents({ sessionId, record, userMessageTs: event.ts });
+    }
   } catch (error) {
     lastError = error.message;
-    if (event.channel) await post(event.channel, `Slack bridge error: ${error.message}`, threadTs(event));
+    const key = sessionKey({ ...event, team: envelope.team_id || event.team });
+    const record = sessions.get(key);
+    if (record && typeof record === "object") {
+      await updateBotMessage(record, `Slack bridge error: ${error.message}`, { force: true });
+      await markComplete(record, event.ts, true);
+      clearActiveRun(record, event.ts);
+    } else if (event.channel) {
+      await post(event.channel, `Slack bridge error: ${error.message}`, threadTs(event));
+    }
   } finally {
-    inFlightSlackEvents.delete(dedupKey);
+    inFlightSlackEvents.delete(stableSlackEventId(envelope));
   }
 }
 
-async function pollAndPostEvents({ sessionId, channel, slackThread }) {
+async function pollAndPostEvents({ sessionId, record, userMessageTs }) {
+  const pollKey = `${sessionId}:${userMessageTs}`;
+  if (activePolls.has(pollKey)) return;
+  activePolls.add(pollKey);
   const delivered = deliveredEvents.get(sessionId) || new Set();
   deliveredEvents.set(sessionId, delivered);
 
-  for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-    let payload;
-    try {
-      payload = await harnessFetch(templatePath(eventsPathTemplate, sessionId), { timeoutMs: eventPollTimeoutMs });
-    } catch (error) {
-      lastError = error.message;
-      return;
+  try {
+    for (let attempt = 0; attempt < pollAttempts; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      let payload;
+      try {
+        payload = await harnessFetch(templatePath(eventsPathTemplate, sessionId), { timeoutMs: eventPollTimeoutMs });
+      } catch (error) {
+        lastError = error.message;
+        await updateBotMessage(record, `Slack bridge error: ${error.message}`, { force: true });
+        await markComplete(record, userMessageTs, true);
+        clearActiveRun(record, userMessageTs);
+        return;
+      }
+
+      const newTexts = [];
+      let terminalStatus = "";
+      extractEvents(payload).forEach((event, index) => {
+        terminalStatus = eventTerminalStatus(event) || terminalStatus;
+        const id = eventId(event, index);
+        if (delivered.has(id)) return;
+        delivered.add(id);
+        const text = eventText(event);
+        if (text) newTexts.push(text);
+      });
+      record.deliveredEventIds = [...delivered].slice(-1000);
+      persistState();
+
+      for (const text of newTexts) await updateBotMessage(record, text);
+
+      const status = terminalStatus || payload?.session?.status || payload?.status || "";
+      if (["completed", "failed", "cancelled", "waiting_for_input", "idle"].includes(status)) {
+        if (newTexts.length) await updateBotMessage(record, newTexts[newTexts.length - 1], { force: true });
+        await markComplete(record, userMessageTs, ["failed", "cancelled"].includes(status));
+        clearActiveRun(record, userMessageTs);
+        return;
+      }
     }
+  } finally {
+    activePolls.delete(pollKey);
+  }
+}
 
-    const newTexts = [];
-    extractEvents(payload).forEach((event, index) => {
-      const id = eventId(event, index);
-      if (delivered.has(id)) return;
-      delivered.add(id);
-      const text = eventText(event);
-      if (text) newTexts.push(text);
+function clearActiveRun(record, userMessageTs) {
+  if (!record.activeRun || record.activeRun.userMessageTs !== userMessageTs) return;
+  delete record.activeRun;
+  persistState();
+}
+
+function resumeActiveRuns() {
+  if (!pollEvents) return;
+  for (const record of sessions.values()) {
+    if (!record || typeof record !== "object" || !record.activeRun?.sessionId || !record.activeRun?.userMessageTs) continue;
+    if (!record.channel || !record.slackThread || !record.botMessageTs) continue;
+    metrics.resumedActiveRuns += 1;
+    void pollAndPostEvents({
+      sessionId: record.activeRun.sessionId,
+      record,
+      userMessageTs: record.activeRun.userMessageTs,
     });
-    persistState();
-
-    for (const text of newTexts) await post(channel, text, slackThread);
-
-    const status = payload?.session?.status || payload?.status || "";
-    if (["completed", "failed", "cancelled", "waiting_for_input", "idle"].includes(status)) return;
   }
 }
 
@@ -331,7 +572,6 @@ async function handleSlackEvents(request, response) {
 
   sendJson(response, 200, { ok: true });
 
-  if (request.headers["x-slack-retry-num"]) return;
   const eventType = envelope.event?.type || "";
   if (eventType === "app_mention" || eventType === "message") {
     void handleSlackMessage(envelope);
@@ -348,6 +588,14 @@ const server = http.createServer((request, response) => {
       bot_user_id: botUserId || null,
       bot_user_name: botUserName || null,
       sessions: sessions.size,
+      processed_slack_events: metrics.processedSlackEvents,
+      deduped_slack_events: metrics.dedupedSlackEvents,
+      last_slack_event_at: metrics.lastSlackEventAt,
+      last_session_id: metrics.lastSessionId,
+      last_update_at: metrics.lastUpdateAt,
+      persisted_dedupe_events: processedSlackEvents.size,
+      active_pollers: activePolls.size,
+      resumed_active_runs: metrics.resumedActiveRuns,
       lastError: lastError || null,
     });
   }
@@ -369,6 +617,7 @@ server.listen(port, "0.0.0.0", async () => {
     botUserName = auth.user || "";
     ready = Boolean(botUserId);
     console.log(`harness-slack-bridge ready as ${botUserName || botUserId} for ${harnessName}`);
+    resumeActiveRuns();
   } catch (error) {
     lastError = error.message;
     console.error(error);

@@ -39,6 +39,7 @@
 For Slack:
 
 1. Apply the Slack `SecretGroup`.
-2. Apply the Hermes state `Volume`.
-3. Deploy `deployments/template/slack-service.yaml` through
-   `make deploy-hermes-agent-slack`.
+2. Deploy the Hermes API service with `make deploy-hermes-agent`.
+3. Configure `shared/slack` to call the Hermes API URL.
+4. Render the Slack app manifest and deploy the HTTP bridge with
+   `make render-slack-bridge` and `make deploy-slack-bridge`.

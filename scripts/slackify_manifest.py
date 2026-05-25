@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inject a standard Slack Socket Mode env block into a TrueFoundry manifest.
+"""Inject standard Slack HTTP Events env vars into a TrueFoundry manifest.
 
 This is intentionally text-based and dependency-free so it works on laptops and
 CI runners without PyYAML. It targets the simple manifest shape used in this
@@ -13,17 +13,13 @@ from pathlib import Path
 
 
 DEFAULT_KEYS = {
-    "SLACK_SOCKET_MODE": '"true"',
     "SLACK_BOT_TOKEN": None,
-    "SLACK_APP_TOKEN": None,
     "SLACK_SIGNING_SECRET": None,
     "SLACK_ALLOWED_USERS": None,
     "SLACK_ALLOWED_CHANNELS": None,
     "SLACK_REQUIRE_MENTION": '"true"',
     "SLACK_STRICT_MENTION": '"true"',
     "SLACK_FREE_RESPONSE_CHANNELS": '""',
-    "SLACK_HOME_CHANNEL": '""',
-    "SLACK_HOME_CHANNEL_NAME": '""',
 }
 
 

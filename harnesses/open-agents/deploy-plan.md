@@ -41,7 +41,7 @@ and use the source-build deploy path for your TrueFoundry version.
 Open Agents does not ship a Slack app adapter. Use `shared/slack` bridge mode:
 
 1. Deploy Open Agents web service.
-2. Deploy a Slack bridge that connects with Socket Mode.
+2. Deploy the shared Slack HTTP Events bridge.
 3. Configure the bridge to call Open Agents API/session endpoints or a thin API
    you add to create a session and append a user message.
 
