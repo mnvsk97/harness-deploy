@@ -1,0 +1,69 @@
+name: claude-code-gateway
+type: service
+workspace_fqn: ${TFY_WORKSPACE_FQN}
+image:
+  type: build
+  build_source:
+    type: local
+    project_root_path: ${HARNESS_DEPLOY_ROOT}/harnesses/claude-code/gateway
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: "."
+resources:
+  cpu_request: 0.25
+  cpu_limit: 1
+  memory_request: 1024
+  memory_limit: 2048
+  ephemeral_storage_request: 4000
+  ephemeral_storage_limit: 8000
+env:
+  PORT: "3001"
+  HOME: /data/home
+  CLAUDE_CONFIG_DIR: /data/claude
+  CLAUDE_GATEWAY_STATE_DIR: /data/gateway-state
+  CLAUDE_GATEWAY_MAX_EVENTS: "10000"
+  WORKSPACE_ROOT: /data/workspaces
+  CLAUDE_MODEL: testmodel/global.anthropic.claude-sonnet-4-6
+  CLAUDE_PERMISSION_MODE: bypassPermissions
+  ANTHROPIC_BASE_URL: "tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-BASE-URL"
+  ANTHROPIC_AUTH_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-API-KEY"
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+  CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+  DISABLE_UPDATES: "1"
+  IS_DEMO: "1"
+  GATEWAY_BEARER_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${CLAUDE_CODE_GATEWAY_SECRET_GROUP}:CLAUDE-GATEWAY-BEARER-TOKEN"
+ports:
+  - port: 3001
+    protocol: TCP
+    expose: true
+    host: ${CLAUDE_CODE_GATEWAY_HOST}
+    app_protocol: http
+replicas: 1
+rollout_strategy:
+  type: rolling_update
+  max_unavailable_percentage: 100
+  max_surge_percentage: 0
+mounts:
+  - type: volume
+    mount_path: /data
+    volume_fqn: tfy-volume://${TFY_WORKSPACE_FQN}:claude-code-state-block
+liveness_probe:
+  config:
+    type: http
+    path: /healthz
+    port: 3001
+  initial_delay_seconds: 30
+  period_seconds: 15
+  timeout_seconds: 5
+  failure_threshold: 5
+readiness_probe:
+  config:
+    type: http
+    path: /readyz
+    port: 3001
+  initial_delay_seconds: 30
+  period_seconds: 15
+  timeout_seconds: 5
+  failure_threshold: 5
+allow_interception: false

@@ -1,0 +1,87 @@
+name: hermes-api
+type: service
+workspace_fqn: ${TFY_WORKSPACE_FQN}
+image:
+  type: build
+  build_source:
+    type: git
+    repo_url: https://github.com/NousResearch/hermes-agent
+    branch_name: main
+    ref: main
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: .
+  command:
+    - bash
+    - -lc
+    - |
+      cat > "${HERMES_HOME:-/opt/data}/config.yaml" <<'EOF'
+      model:
+        provider: truefoundry
+        default: openai-main/gpt-5.5
+      toolsets:
+        - hermes-cli
+      platforms:
+        api_server:
+          enabled: true
+      platform_toolsets:
+        api_server:
+          - hermes-api-server
+      EOF
+      exec hermes gateway run
+resources:
+  cpu_request: 0.5
+  cpu_limit: 1
+  memory_request: 1024
+  memory_limit: 2048
+  ephemeral_storage_request: 4000
+  ephemeral_storage_limit: 8000
+replicas: 1
+env:
+  HERMES_HOME: /opt/data
+  HERMES_UID: "10000"
+  HERMES_GID: "10000"
+  TFY_BASE_URL: tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-BASE-URL
+  TFY_API_KEY: tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-API-KEY
+  HERMES_INFERENCE_PROVIDER: truefoundry
+  HERMES_INFERENCE_MODEL: openai-main/gpt-5.5
+  API_SERVER_ENABLED: "true"
+  API_SERVER_HOST: 0.0.0.0
+  API_SERVER_PORT: "8642"
+  API_SERVER_MODEL_NAME: openai-main/gpt-5.5
+  API_SERVER_KEY: tfy-secret://${TFY_SECRET_TENANT}:${CODEX_GATEWAY_SECRET_GROUP}:CODEX-GATEWAY-BEARER-TOKEN
+ports:
+  - port: 8642
+    protocol: TCP
+    expose: true
+    host: ${HERMES_API_HOST}
+    app_protocol: http
+mounts:
+  - type: volume
+    mount_path: /opt/data
+    volume_fqn: tfy-volume://${TFY_WORKSPACE_FQN}:hermes-state
+liveness_probe:
+  config:
+    type: http
+    path: /health
+    port: 8642
+    scheme: HTTP
+  initial_delay_seconds: 30
+  period_seconds: 15
+  timeout_seconds: 5
+  failure_threshold: 5
+readiness_probe:
+  config:
+    type: http
+    path: /health
+    port: 8642
+    scheme: HTTP
+  initial_delay_seconds: 30
+  period_seconds: 15
+  timeout_seconds: 5
+  failure_threshold: 5
+rollout_strategy:
+  type: rolling_update
+  max_surge_percentage: 0
+  max_unavailable_percentage: 100

@@ -1,0 +1,12 @@
+name: goose-remote-mcp
+type: mcp-server/remote
+description: Goose MCP endpoint after exposing a supported remote transport.
+url: https://goose-server.YOUR_TFY_BASE_DOMAIN/mcp
+transport: streamable-http
+auth_data:
+  type: header
+  headers:
+    X-Secret-Key: "replace-me"
+tags:
+  - goose
+  - coding-agent

@@ -1,0 +1,34 @@
+name: deepagents-api
+type: service
+workspace_fqn: WORKSPACE_FQN_HERE
+image:
+  type: build
+  build_source:
+    type: git
+    repo_url: https://github.com/YOUR_ORG/YOUR_DEEPAGENTS_WRAPPER_REPO
+    branch_name: main
+    ref: main
+  build_spec:
+    type: tfy-python-buildpack
+    python_version: "3.12"
+    command: uvicorn app:app --host 0.0.0.0 --port 8000
+    python_dependencies:
+      type: pip
+      requirements_path: requirements.txt
+resources:
+  cpu_request: 1
+  cpu_limit: 2
+  memory_request: 2048
+  memory_limit: 4096
+  ephemeral_storage_request: 4000
+  ephemeral_storage_limit: 8000
+env:
+  ANTHROPIC_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:deepagents-secrets:ANTHROPIC_API_KEY"
+  OPENAI_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:deepagents-secrets:OPENAI_API_KEY"
+  LANGSMITH_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:deepagents-secrets:LANGSMITH_API_KEY"
+ports:
+  - port: 8000
+    expose: true
+    host: deepagents-api.YOUR_TFY_BASE_DOMAIN
+    app_protocol: http
+replicas: 1

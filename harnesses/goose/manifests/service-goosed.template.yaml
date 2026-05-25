@@ -1,0 +1,27 @@
+name: goose-server
+type: service
+workspace_fqn: WORKSPACE_FQN_HERE
+image:
+  type: image
+  image_uri: YOUR_REGISTRY/goose-goosed:latest
+  command: goosed agent
+resources:
+  cpu_request: 2
+  cpu_limit: 4
+  memory_request: 4096
+  memory_limit: 8192
+  ephemeral_storage_request: 20000
+  ephemeral_storage_limit: 40000
+env:
+  GOOSE_HOST: 0.0.0.0
+  GOOSE_PORT: "3000"
+  GOOSE_TLS: "false"
+  GOOSE_SERVER__SECRET_KEY: "tfy-secret://YOUR_USER_OR_TEAM:goose-secrets:GOOSE_SERVER_SECRET_KEY"
+  ANTHROPIC_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:goose-secrets:ANTHROPIC_API_KEY"
+  OPENAI_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:goose-secrets:OPENAI_API_KEY"
+ports:
+  - port: 3000
+    expose: true
+    host: goose-server.YOUR_TFY_BASE_DOMAIN
+    app_protocol: http
+replicas: 1

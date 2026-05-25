@@ -1,0 +1,7 @@
+name: harness-deploy-runner
+type: virtual-account
+workspace_fqn: WORKSPACE_FQN_HERE
+permissions:
+  - application:manage
+  - job:trigger
+  - secret-group:read

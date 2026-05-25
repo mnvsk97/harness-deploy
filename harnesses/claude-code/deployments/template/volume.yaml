@@ -1,0 +1,7 @@
+name: claude-code-state-block
+type: volume
+workspace_fqn: ${TFY_WORKSPACE_FQN}
+config:
+  type: dynamic
+  size: 20
+  storage_class: managed-csi-premium

@@ -1,0 +1,61 @@
+name: openclaw-gateway
+type: service
+workspace_fqn: WORKSPACE_FQN_HERE
+image:
+  type: build
+  build_source:
+    type: git
+    repo_url: https://github.com/openclaw/openclaw
+    branch_name: main
+    ref: main
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: .
+  command:
+    - node
+    - dist/index.js
+    - gateway
+    - --bind
+    - lan
+    - --port
+    - "18789"
+resources:
+  cpu_request: 1
+  cpu_limit: 2
+  memory_request: 2048
+  memory_limit: 4096
+  ephemeral_storage_request: 4096
+  ephemeral_storage_limit: 8192
+replicas: 1
+env:
+  HOME: /home/node
+  OPENCLAW_HOME: /home/node
+  OPENCLAW_STATE_DIR: /home/node/.openclaw
+  OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+  OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+  OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+  OPENCLAW_GATEWAY_TOKEN: tfy-secret://WORKSPACE_OR_USER:openclaw-secrets:OPENCLAW_GATEWAY_TOKEN
+  SLACK_SOCKET_MODE: "true"
+  SLACK_BOT_TOKEN: tfy-secret://WORKSPACE_OR_USER:openclaw-secrets:SLACK_BOT_TOKEN
+  SLACK_APP_TOKEN: tfy-secret://WORKSPACE_OR_USER:openclaw-secrets:SLACK_APP_TOKEN
+  SLACK_ALLOWED_USERS: tfy-secret://WORKSPACE_OR_USER:openclaw-secrets:SLACK_ALLOWED_USERS
+  SLACK_ALLOWED_CHANNELS: tfy-secret://WORKSPACE_OR_USER:openclaw-secrets:SLACK_ALLOWED_CHANNELS
+  SLACK_REQUIRE_MENTION: "true"
+  SLACK_STRICT_MENTION: "true"
+ports:
+  - port: 18789
+    expose: true
+    host: openclaw-gateway.YOUR_TFY_BASE_DOMAIN
+    app_protocol: http
+liveness_probe:
+  config:
+    type: http
+    path: /healthz
+    port: 18789
+readiness_probe:
+  config:
+    type: http
+    path: /readyz
+    port: 18789
+# Mount volume openclaw-state at /home/node/.openclaw before production use.

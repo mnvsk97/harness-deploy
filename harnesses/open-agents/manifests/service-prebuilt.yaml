@@ -1,0 +1,40 @@
+name: open-agents-web
+type: service
+workspace_fqn: WORKSPACE_FQN_HERE
+image:
+  type: image
+  image_uri: YOUR_REGISTRY/open-agents-web:latest
+  command: bun run --cwd apps/web start -- -H 0.0.0.0 -p 3000
+resources:
+  cpu_request: 2
+  cpu_limit: 4
+  memory_request: 4096
+  memory_limit: 8192
+  ephemeral_storage_request: 10000
+  ephemeral_storage_limit: 20000
+env:
+  NODE_ENV: production
+  PORT: "3000"
+  HOSTNAME: 0.0.0.0
+  POSTGRES_URL: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:POSTGRES_URL
+  BETTER_AUTH_SECRET: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:BETTER_AUTH_SECRET
+  NEXT_PUBLIC_VERCEL_APP_CLIENT_ID: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:NEXT_PUBLIC_VERCEL_APP_CLIENT_ID
+  VERCEL_APP_CLIENT_SECRET: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:VERCEL_APP_CLIENT_SECRET
+  NEXT_PUBLIC_GITHUB_CLIENT_ID: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:NEXT_PUBLIC_GITHUB_CLIENT_ID
+  GITHUB_CLIENT_SECRET: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:GITHUB_CLIENT_SECRET
+  GITHUB_APP_ID: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:GITHUB_APP_ID
+  GITHUB_APP_PRIVATE_KEY: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:GITHUB_APP_PRIVATE_KEY
+  NEXT_PUBLIC_GITHUB_APP_SLUG: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:NEXT_PUBLIC_GITHUB_APP_SLUG
+  GITHUB_WEBHOOK_SECRET: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:GITHUB_WEBHOOK_SECRET
+  REDIS_URL: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:REDIS_URL
+  KV_URL: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:KV_URL
+  ELEVENLABS_API_KEY: tfy-secret://WORKSPACE_OR_USER:open-agents-secrets:ELEVENLABS_API_KEY
+  OPEN_AGENTS_RESOURCE_PROFILE: hobby
+  VERCEL_PROJECT_PRODUCTION_URL: open-agents.YOUR_TFY_BASE_DOMAIN
+  NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL: open-agents.YOUR_TFY_BASE_DOMAIN
+ports:
+  - port: 3000
+    expose: true
+    host: open-agents.YOUR_TFY_BASE_DOMAIN
+    app_protocol: http
+replicas: 1

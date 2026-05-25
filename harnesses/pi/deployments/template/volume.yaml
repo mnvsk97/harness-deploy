@@ -1,0 +1,6 @@
+name: pi-steppable-state-block
+type: volume
+workspace_fqn: ${TFY_WORKSPACE_FQN}
+size: "50Gi"
+access_mode: ReadWriteOnce
+storage_class: ${PI_STORAGE_CLASS}

@@ -1,0 +1,41 @@
+name: hermes-gateway
+type: service
+workspace_fqn: WORKSPACE_FQN_HERE
+image:
+  type: build
+  build_source:
+    type: git
+    repo_url: https://github.com/NousResearch/hermes-agent
+    branch_name: main
+    ref: main
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: .
+  command:
+    - gateway
+    - run
+resources:
+  cpu_request: 1
+  cpu_limit: 2
+  memory_request: 2048
+  memory_limit: 4096
+  ephemeral_storage_request: 4096
+  ephemeral_storage_limit: 8192
+replicas: 1
+env:
+  HERMES_HOME: /opt/data
+  HERMES_UID: "10000"
+  HERMES_GID: "10000"
+  OPENROUTER_API_KEY: tfy-secret://WORKSPACE_OR_USER:hermes-secrets:OPENROUTER_API_KEY
+  OPENAI_API_KEY: tfy-secret://WORKSPACE_OR_USER:hermes-secrets:OPENAI_API_KEY
+  ANTHROPIC_API_KEY: tfy-secret://WORKSPACE_OR_USER:hermes-secrets:ANTHROPIC_API_KEY
+  SLACK_SOCKET_MODE: "true"
+  SLACK_BOT_TOKEN: tfy-secret://WORKSPACE_OR_USER:hermes-secrets:SLACK_BOT_TOKEN
+  SLACK_APP_TOKEN: tfy-secret://WORKSPACE_OR_USER:hermes-secrets:SLACK_APP_TOKEN
+  SLACK_ALLOWED_USERS: tfy-secret://WORKSPACE_OR_USER:hermes-secrets:SLACK_ALLOWED_USERS
+  SLACK_ALLOWED_CHANNELS: tfy-secret://WORKSPACE_OR_USER:hermes-secrets:SLACK_ALLOWED_CHANNELS
+  SLACK_REQUIRE_MENTION: "true"
+  SLACK_STRICT_MENTION: "true"
+ports: []
+# Mount volume hermes-state at /opt/data before production use.

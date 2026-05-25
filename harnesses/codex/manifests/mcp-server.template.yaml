@@ -1,0 +1,12 @@
+name: codex-mcp-remote
+type: mcp-server/remote
+description: Codex MCP server after wrapping stdio codex mcp-server behind HTTP.
+url: https://codex-mcp.YOUR_TFY_BASE_DOMAIN/mcp
+transport: streamable-http
+auth_data:
+  type: header
+  headers:
+    Authorization: "Bearer replace-me"
+tags:
+  - codex
+  - coding-agent

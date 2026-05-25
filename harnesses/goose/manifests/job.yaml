@@ -1,0 +1,28 @@
+name: goose-cli-job
+type: job
+workspace_fqn: WORKSPACE_FQN_HERE
+trigger:
+  type: manual
+retries: 0
+image:
+  type: build
+  build_source:
+    type: git
+    repo_url: https://github.com/block/goose
+    branch_name: main
+    ref: main
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: "."
+  command: goose --help
+resources:
+  cpu_request: 2
+  cpu_limit: 4
+  memory_request: 4096
+  memory_limit: 8192
+  ephemeral_storage_request: 20000
+  ephemeral_storage_limit: 40000
+env:
+  ANTHROPIC_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:goose-secrets:ANTHROPIC_API_KEY"
+  OPENAI_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:goose-secrets:OPENAI_API_KEY"

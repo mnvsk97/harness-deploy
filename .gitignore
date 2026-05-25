@@ -1,0 +1,6 @@
+.research/
+.env
+.rendered/
+.DS_Store
+*.log
+tmp/

@@ -1,0 +1,6 @@
+name: goose-state
+type: volume
+workspace_fqn: WORKSPACE_FQN_HERE
+size: "20Gi"
+access_mode: ReadWriteOnce
+storage_class: STORAGE_CLASS_HERE

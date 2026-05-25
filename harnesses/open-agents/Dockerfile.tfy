@@ -1,0 +1,21 @@
+FROM oven/bun:1.2.14 AS build
+
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+
+COPY . .
+RUN bun install --frozen-lockfile
+RUN bun run --cwd apps/web build
+
+FROM oven/bun:1.2.14 AS runtime
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+COPY --from=build /app /app
+
+EXPOSE 3000
+CMD ["bun", "run", "--cwd", "apps/web", "start", "--", "-H", "0.0.0.0", "-p", "3000"]

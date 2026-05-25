@@ -1,0 +1,33 @@
+name: pi-rpc-worker
+type: service
+workspace_fqn: WORKSPACE_FQN_HERE
+image:
+  type: build
+  build_source:
+    type: git
+    repo_url: https://github.com/YOUR_ORG/YOUR_PI_RPC_WRAPPER
+    branch_name: main
+    ref: main
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: "."
+  command: node server.js
+resources:
+  cpu_request: 1
+  cpu_limit: 2
+  memory_request: 2048
+  memory_limit: 4096
+  ephemeral_storage_request: 8000
+  ephemeral_storage_limit: 16000
+env:
+  PI_CODING_AGENT_DIR: /home/node/.pi/agent
+  PI_CODING_AGENT_SESSION_DIR: /home/node/.pi/sessions
+  ANTHROPIC_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:pi-secrets:ANTHROPIC_API_KEY"
+  OPENAI_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:pi-secrets:OPENAI_API_KEY"
+ports:
+  - port: 8080
+    expose: true
+    host: pi-rpc-worker.YOUR_TFY_BASE_DOMAIN
+    app_protocol: http
+replicas: 1

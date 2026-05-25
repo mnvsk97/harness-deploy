@@ -1,0 +1,27 @@
+name: codex-exec-job
+type: job
+workspace_fqn: WORKSPACE_FQN_HERE
+trigger:
+  type: manual
+retries: 0
+image:
+  type: image
+  image_uri: node:22-bookworm
+  command: >-
+    bash -lc "npm install -g @openai/codex &&
+    mkdir -p /home/node/.codex /workspace &&
+    cd /workspace &&
+    codex exec --sandbox ${CODEX_SANDBOX:-workspace-write} \"${CODEX_PROMPT:-Say exactly: codex-ok}\""
+resources:
+  cpu_request: 1
+  cpu_limit: 2
+  memory_request: 2048
+  memory_limit: 4096
+  ephemeral_storage_request: 8000
+  ephemeral_storage_limit: 16000
+env:
+  HOME: /home/node
+  CODEX_HOME: /home/node/.codex
+  CODEX_SANDBOX: workspace-write
+  CODEX_PROMPT: "Say exactly: codex-ok"
+  OPENAI_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:codex-secrets:OPENAI_API_KEY"

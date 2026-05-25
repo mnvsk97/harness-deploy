@@ -1,0 +1,38 @@
+name: hermes-dashboard
+type: service
+workspace_fqn: WORKSPACE_FQN_HERE
+image:
+  type: build
+  build_source:
+    type: git
+    repo_url: https://github.com/NousResearch/hermes-agent
+    branch_name: main
+    ref: main
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: .
+  command:
+    - dashboard
+    - --host
+    - 0.0.0.0
+    - --no-open
+resources:
+  cpu_request: 1
+  cpu_limit: 2
+  memory_request: 2048
+  memory_limit: 4096
+  ephemeral_storage_request: 4096
+  ephemeral_storage_limit: 8192
+replicas: 1
+env:
+  HERMES_HOME: /opt/data
+  HERMES_DASHBOARD: "1"
+  HERMES_DASHBOARD_HOST: 0.0.0.0
+  HERMES_DASHBOARD_PORT: "9119"
+ports:
+  - port: 9119
+    expose: true
+    host: hermes-dashboard.YOUR_TFY_BASE_DOMAIN
+    app_protocol: http
+# Add endpoint auth before exposing this dashboard to users.

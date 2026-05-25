@@ -1,0 +1,7 @@
+name: hermes-state
+type: volume
+workspace_fqn: ${TFY_WORKSPACE_FQN}
+config:
+  type: dynamic
+  size: 20
+  storage_class: azurefile

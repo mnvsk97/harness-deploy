@@ -1,0 +1,58 @@
+name: openswe-service
+type: service
+workspace_fqn: WORKSPACE_FQN_HERE
+image:
+  type: build
+  build_source:
+    type: git
+    repo_url: https://github.com/langchain-ai/open-swe
+    branch_name: main
+    ref: main
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: .
+  command:
+    - bash
+    - -lc
+    - uv run langgraph dev --host 0.0.0.0 --port 2024 --no-browser
+resources:
+  cpu_request: 1
+  cpu_limit: 2
+  memory_request: 2048
+  memory_limit: 4096
+  ephemeral_storage_request: 4096
+  ephemeral_storage_limit: 8192
+replicas: 1
+env:
+  SANDBOX_TYPE: langsmith
+  ANTHROPIC_API_KEY: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:ANTHROPIC_API_KEY
+  OPENAI_API_KEY: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:OPENAI_API_KEY
+  LANGSMITH_API_KEY_PROD: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:LANGSMITH_API_KEY_PROD
+  LANGSMITH_TENANT_ID_PROD: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:LANGSMITH_TENANT_ID_PROD
+  LANGSMITH_TRACING_PROJECT_ID_PROD: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:LANGSMITH_TRACING_PROJECT_ID_PROD
+  LANGSMITH_URL_PROD: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:LANGSMITH_URL_PROD
+  DEFAULT_SANDBOX_SNAPSHOT_ID: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:DEFAULT_SANDBOX_SNAPSHOT_ID
+  DAYTONA_API_KEY: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:DAYTONA_API_KEY
+  MODAL_TOKEN_ID: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:MODAL_TOKEN_ID
+  MODAL_TOKEN_SECRET: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:MODAL_TOKEN_SECRET
+  RUNLOOP_API_KEY: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:RUNLOOP_API_KEY
+  GITHUB_APP_ID: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:GITHUB_APP_ID
+  GITHUB_APP_PRIVATE_KEY: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:GITHUB_APP_PRIVATE_KEY
+  GITHUB_APP_INSTALLATION_ID: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:GITHUB_APP_INSTALLATION_ID
+  GITHUB_WEBHOOK_SECRET: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:GITHUB_WEBHOOK_SECRET
+  GITHUB_OAUTH_PROVIDER_ID: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:GITHUB_OAUTH_PROVIDER_ID
+  ALLOWED_GITHUB_ORGS: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:ALLOWED_GITHUB_ORGS
+  ALLOWED_GITHUB_REPOS: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:ALLOWED_GITHUB_REPOS
+  LINEAR_API_KEY: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:LINEAR_API_KEY
+  LINEAR_WEBHOOK_SECRET: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:LINEAR_WEBHOOK_SECRET
+  SLACK_BOT_TOKEN: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:SLACK_BOT_TOKEN
+  SLACK_SIGNING_SECRET: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:SLACK_SIGNING_SECRET
+  SLACK_BOT_USER_ID: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:SLACK_BOT_USER_ID
+  SLACK_BOT_USERNAME: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:SLACK_BOT_USERNAME
+  ENCRYPTION_KEY: tfy-secret://WORKSPACE_OR_USER:openswe-secrets:ENCRYPTION_KEY
+ports:
+  - port: 2024
+    expose: true
+    host: openswe.YOUR_TFY_BASE_DOMAIN
+    app_protocol: http

@@ -1,0 +1,27 @@
+name: harness-slack-bridge
+type: service
+workspace_fqn: WORKSPACE_FQN_HERE
+image:
+  type: image
+  image_uri: YOUR_REGISTRY/harness-slack-bridge:latest
+  command: node server.js
+resources:
+  cpu_request: 0.5
+  cpu_limit: 1
+  memory_request: 512
+  memory_limit: 1024
+  ephemeral_storage_request: 1000
+  ephemeral_storage_limit: 2000
+env:
+  SLACK_SOCKET_MODE: "true"
+  SLACK_BOT_TOKEN: "tfy-secret://YOUR_USER_OR_TEAM:slack-secrets:SLACK_BOT_TOKEN"
+  SLACK_APP_TOKEN: "tfy-secret://YOUR_USER_OR_TEAM:slack-secrets:SLACK_APP_TOKEN"
+  SLACK_SIGNING_SECRET: "tfy-secret://YOUR_USER_OR_TEAM:slack-secrets:SLACK_SIGNING_SECRET"
+  SLACK_ALLOWED_USERS: "tfy-secret://YOUR_USER_OR_TEAM:slack-secrets:SLACK_ALLOWED_USERS"
+  SLACK_ALLOWED_CHANNELS: "tfy-secret://YOUR_USER_OR_TEAM:slack-secrets:SLACK_ALLOWED_CHANNELS"
+  SLACK_REQUIRE_MENTION: "true"
+  HARNESS_NAME: target-harness
+  HARNESS_API_URL: https://target-harness.YOUR_TFY_BASE_DOMAIN
+  HARNESS_API_TOKEN: "tfy-secret://YOUR_USER_OR_TEAM:target-harness-secrets:HARNESS_API_TOKEN"
+ports: []
+replicas: 1

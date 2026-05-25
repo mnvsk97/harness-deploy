@@ -1,0 +1,27 @@
+name: claude-code-job
+type: job
+workspace_fqn: WORKSPACE_FQN_HERE
+trigger:
+  type: manual
+retries: 0
+image:
+  type: image
+  image_uri: node:20-bookworm
+  command: >-
+    bash -lc "npm install -g @anthropic-ai/claude-code@latest &&
+    mkdir -p /home/node/.claude /workspace &&
+    cd /workspace &&
+    claude -p \"${CLAUDE_PROMPT:-Say exactly: claude-ok}\""
+resources:
+  cpu_request: 1
+  cpu_limit: 2
+  memory_request: 2048
+  memory_limit: 4096
+  ephemeral_storage_request: 8000
+  ephemeral_storage_limit: 16000
+env:
+  HOME: /home/node
+  CLAUDE_PROMPT: "Say exactly: claude-ok"
+  ANTHROPIC_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:claude-code-secrets:ANTHROPIC_API_KEY"
+  ANTHROPIC_AUTH_TOKEN: "tfy-secret://YOUR_USER_OR_TEAM:claude-code-secrets:ANTHROPIC_AUTH_TOKEN"
+  ANTHROPIC_BASE_URL: "tfy-secret://YOUR_USER_OR_TEAM:claude-code-secrets:ANTHROPIC_BASE_URL"

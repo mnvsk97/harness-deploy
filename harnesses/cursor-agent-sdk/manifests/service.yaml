@@ -1,0 +1,30 @@
+name: cursor-agent-worker
+type: service
+workspace_fqn: WORKSPACE_FQN_HERE
+image:
+  type: build
+  build_source:
+    type: git
+    repo_url: https://github.com/cursor/cookbook
+    branch_name: main
+    ref: main
+  build_spec:
+    type: dockerfile
+    dockerfile_path: docker/Dockerfile
+    build_context_path: self-hosted-cloud-agent
+resources:
+  cpu_request: 2
+  cpu_limit: 4
+  memory_request: 4096
+  memory_limit: 8192
+  ephemeral_storage_request: 20000
+  ephemeral_storage_limit: 40000
+env:
+  CURSOR_API_KEY: "tfy-secret://YOUR_USER_OR_TEAM:cursor-agent-secrets:CURSOR_API_KEY"
+  CURSOR_WORKER_DIR: /workspace
+  CURSOR_WORKER_POOL_NAME: truefoundry-harness-pool
+  CURSOR_WORKER_IDLE_RELEASE_TIMEOUT: "3600"
+  CURSOR_WORKER_LABELS_JSON: '{"runtime":"truefoundry","harness":"cursor-agent-sdk"}'
+  WORKER_REPOSITORY_URL: ""
+ports: []
+replicas: 1
