@@ -6,6 +6,7 @@ because the upstream Goose Dockerfile currently ships only the `goose` CLI.
 ## Components
 
 - `goose-state-block`: block volume mounted at `/data`.
+- `${GOOSE_SECRET_GROUP}`: Goose server auth secret.
 - `goose-api`: `goosed agent` listening on HTTP port `3000`.
 
 ## Model Routing
@@ -16,15 +17,20 @@ the existing TrueFoundry Gateway secrets:
 - `tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-BASE-URL`
 - `tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-API-KEY`
 
-The external Goose server secret uses the same gateway bearer-token secret as
-the Codex and Hermes API surfaces:
+The external Goose server secret is independent from the Codex and Hermes API
+tokens:
 
-- `tfy-secret://${TFY_SECRET_TENANT}:${CODEX_GATEWAY_SECRET_GROUP}:CODEX-GATEWAY-BEARER-TOKEN`
+- `tfy-secret://${TFY_SECRET_TENANT}:${GOOSE_SECRET_GROUP}:GOOSE-SERVER-SECRET-KEY`
+
+The secret group is created against `${GOOSE_SECRET_INTEGRATION_FQN}`.
+`${GOOSE_SECRET_ADMIN_EMAIL}` is granted `secret-group-admin` on the generated
+group.
 
 ## Apply Order
 
 ```bash
 make render-goose
+tfy apply -f .rendered/goose/secret-group.yaml
 tfy apply -f .rendered/goose/volume.yaml --dry-run --show-diff
 make deploy-goose
 ```
@@ -40,7 +46,7 @@ Smoke test:
 
 ```bash
 curl -i https://$GOOSE_API_HOST/status
-curl -i https://$GOOSE_API_HOST/system_info -H "X-Secret-Key: $CODEX_GATEWAY_TOKEN"
+curl -i https://$GOOSE_API_HOST/system_info -H "X-Secret-Key: $GOOSE_SERVER_SECRET_KEY"
 ```
 
 Keep MCP registration separate until the deployed endpoint is intentionally

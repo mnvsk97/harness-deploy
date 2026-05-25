@@ -2,7 +2,7 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import pty from "node-pty";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 
 const port = Number(process.env.PORT || 3001);
 const workspaceRoot = process.env.WORKSPACE_ROOT || "/data/workspaces";
@@ -13,6 +13,11 @@ const gatewayToken = process.env.GATEWAY_BEARER_TOKEN || "";
 const defaultModel = process.env.CLAUDE_MODEL || process.env.ANTHROPIC_MODEL || "";
 const defaultPermissionMode = process.env.CLAUDE_PERMISSION_MODE || "bypassPermissions";
 const maxSessionEvents = Number(process.env.CLAUDE_GATEWAY_MAX_EVENTS || 10000);
+const defaultMaxTurns = Number(process.env.CLAUDE_MAX_TURNS || 20);
+const defaultAllowedTools = (process.env.CLAUDE_ALLOWED_TOOLS || "Bash,Read,Edit,Write,MultiEdit,Glob,Grep,LS,NotebookEdit,WebFetch,WebSearch")
+  .split(",")
+  .map((tool) => tool.trim())
+  .filter(Boolean);
 
 mkdirSync(workspaceRoot, { recursive: true });
 mkdirSync(stateRoot, { recursive: true });
@@ -53,6 +58,8 @@ function persistSession(session) {
     state_dir: session.state_dir,
     model: session.model || null,
     permission_mode: session.permission_mode,
+    max_turns: session.max_turns || null,
+    native_session_id: session.native_session_id || null,
     exit: session.exit || null,
     events,
     next_sequence: session.next_sequence || nextSequenceFrom(events),
@@ -71,7 +78,9 @@ function loadPersistedSessions() {
         status: data.status === "running" ? "failed" : data.status,
         events,
         next_sequence: data.next_sequence || nextSequenceFrom(events),
-        pty: null,
+        query: null,
+        input: null,
+        abortController: null,
       });
     } catch (error) {
       console.error(`failed to load session ${file.name}: ${error.message}`);
@@ -140,12 +149,147 @@ function appendEvent(session, type, payload) {
   return event;
 }
 
-function ptyArgs(session, initialMessage) {
-  const args = [];
-  if (session.model) args.push("--model", session.model);
-  if (session.permission_mode) args.push("--permission-mode", session.permission_mode);
-  if (initialMessage) args.push(initialMessage);
-  return args;
+class MessageQueue {
+  constructor() {
+    this.messages = [];
+    this.waiters = [];
+    this.closed = false;
+  }
+
+  push(text) {
+    if (this.closed) throw new Error("Session input is closed");
+    const message = {
+      type: "user",
+      message: {
+        role: "user",
+        content: text,
+      },
+      parent_tool_use_id: null,
+    };
+    const waiter = this.waiters.shift();
+    if (waiter) waiter({ value: message, done: false });
+    else this.messages.push(message);
+  }
+
+  close() {
+    this.closed = true;
+    for (const waiter of this.waiters.splice(0)) waiter({ value: undefined, done: true });
+  }
+
+  async *[Symbol.asyncIterator]() {
+    while (true) {
+      if (this.messages.length) {
+        yield this.messages.shift();
+        continue;
+      }
+      if (this.closed) return;
+      const next = await new Promise((resolve) => this.waiters.push(resolve));
+      if (next.done) return;
+      yield next.value;
+    }
+  }
+}
+
+function sdkEnv() {
+  return {
+    ...process.env,
+    HOME: home,
+    CLAUDE_CONFIG_DIR: claudeConfigDir,
+    CLAUDE_AGENT_SDK_CLIENT_APP: "truefoundry-claude-code-gateway",
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN,
+    CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB || "1",
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC || "1",
+    DISABLE_UPDATES: process.env.DISABLE_UPDATES || "1",
+  };
+}
+
+function sdkOptions(session, { resumeNativeSessionId } = {}) {
+  const requestedPermissionMode = session.permission_mode || "default";
+  const scrubEnabled = sdkEnv().CLAUDE_CODE_SUBPROCESS_ENV_SCRUB !== "0";
+  const permissionMode = scrubEnabled && requestedPermissionMode === "bypassPermissions" ? "default" : requestedPermissionMode;
+  return {
+    cwd: session.workspace_dir,
+    env: sdkEnv(),
+    model: session.model || undefined,
+    permissionMode,
+    allowDangerouslySkipPermissions: permissionMode === "bypassPermissions" && !scrubEnabled,
+    allowedTools: defaultAllowedTools,
+    maxTurns: session.max_turns || defaultMaxTurns,
+    persistSession: true,
+    resume: resumeNativeSessionId || undefined,
+    systemPrompt: { type: "preset", preset: "claude_code" },
+    tools: { type: "preset", preset: "claude_code" },
+    stderr: (data) => appendEvent(session, "sdk.stderr", { text: data }),
+  };
+}
+
+function extractAssistantText(message) {
+  if (message?.type !== "assistant" || !Array.isArray(message.message?.content)) return "";
+  return message.message.content
+    .filter((block) => block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text)
+    .join("");
+}
+
+function startSdkRuntime(session, { resumeNativeSessionId } = {}) {
+  const input = new MessageQueue();
+  const abortController = new AbortController();
+  const sdkQuery = query({
+    prompt: input,
+    options: {
+      ...sdkOptions(session, { resumeNativeSessionId }),
+      abortController,
+    },
+  });
+
+  session.input = input;
+  session.query = sdkQuery;
+  session.abortController = abortController;
+  session.status = "running";
+  appendEvent(session, "harness.status", { status: "running", runtime: "claude-agent-sdk" });
+
+  void (async () => {
+    try {
+      for await (const message of sdkQuery) {
+        if (message.session_id && !session.native_session_id) {
+          session.native_session_id = message.session_id;
+          persistSession(session);
+        }
+        appendEvent(session, "sdk.message", { message });
+
+        const text = extractAssistantText(message);
+        if (text) appendEvent(session, "assistant.message", { text, stream: "sdk" });
+
+        if (message.type === "result") {
+          if (message.session_id) {
+            session.native_session_id = message.session_id;
+            persistSession(session);
+          }
+          appendEvent(session, message.subtype === "success" ? "run.completed" : "run.failed", {
+            subtype: message.subtype,
+            result: message.result,
+            session_id: message.session_id,
+            total_cost_usd: message.total_cost_usd,
+            usage: message.usage,
+          });
+        }
+      }
+      if (session.status === "running") session.status = "idle";
+      appendEvent(session, "harness.status", { status: session.status });
+    } catch (error) {
+      session.status = error?.name === "AbortError" ? "cancelled" : "failed";
+      appendEvent(session, session.status === "cancelled" ? "run.cancelled" : "run.failed", {
+        error: error.message,
+      });
+    } finally {
+      session.query = null;
+      session.input = null;
+      session.abortController = null;
+      persistSession(session);
+    }
+  })();
+
+  return input;
 }
 
 function startClaudeSession({ message, model, permissionMode } = {}) {
@@ -162,9 +306,13 @@ function startClaudeSession({ message, model, permissionMode } = {}) {
     state_dir: stateDir,
     model: model || defaultModel,
     permission_mode: permissionMode || defaultPermissionMode,
+    max_turns: defaultMaxTurns,
     events: [],
     next_sequence: 1,
-    pty: null,
+    native_session_id: null,
+    query: null,
+    input: null,
+    abortController: null,
   };
   sessions.set(sessionId, session);
   persistSession(session);
@@ -172,38 +320,11 @@ function startClaudeSession({ message, model, permissionMode } = {}) {
     harness: "claude-code",
     workspace_dir: workspaceDir,
     state_dir: stateDir,
+    runtime: "claude-agent-sdk",
   });
 
-  const child = pty.spawn("claude", ptyArgs(session, message), {
-    name: "xterm-256color",
-    cols: 120,
-    rows: 36,
-    cwd: workspaceDir,
-    env: {
-      ...process.env,
-      HOME: home,
-      CLAUDE_CONFIG_DIR: claudeConfigDir,
-      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB || "1",
-      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC || "1",
-      DISABLE_UPDATES: process.env.DISABLE_UPDATES || "1",
-      IS_DEMO: process.env.IS_DEMO || "1",
-    },
-  });
-
-  session.pty = child;
-  session.status = "running";
-  appendEvent(session, "harness.status", { status: "running", pid: child.pid });
-
-  child.onData((data) => {
-    appendEvent(session, "assistant.message", { text: data, stream: "pty" });
-  });
-
-  child.onExit(({ exitCode, signal }) => {
-    session.status = exitCode === 0 ? "completed" : "failed";
-    session.exit = { exit_code: exitCode, signal };
-    session.pty = null;
-    appendEvent(session, exitCode === 0 ? "run.completed" : "run.failed", session.exit);
-  });
+  const input = startSdkRuntime(session);
+  if (message) input.push(message);
 
   return session;
 }
@@ -218,7 +339,9 @@ function publicSession(session) {
     state_dir: session.state_dir,
     model: session.model || null,
     permission_mode: session.permission_mode,
-    live: Boolean(session.pty),
+    native_session_id: session.native_session_id || null,
+    runtime: "claude-agent-sdk",
+    live: Boolean(session.query),
     exit: session.exit || null,
   };
 }
@@ -288,14 +411,13 @@ async function route(request, response) {
   }
 
   if (request.method === "POST" && (action === "events" || action === "messages")) {
-    if (!session.pty) throw new Error("Session is not live");
+    if (!session.input) {
+      startSdkRuntime(session, { resumeNativeSessionId: session.native_session_id });
+    }
     const body = await readBody(request);
     const message = inputFromBody(body);
     appendEvent(session, "user.message", { text: message });
-    session.pty.write(`${message}\r`);
-    setTimeout(() => {
-      if (session.pty) session.pty.write("\r");
-    }, 150);
+    session.input.push(message);
     return sendJson(response, 200, { ok: true, session: publicSession(session) });
   }
 
@@ -324,19 +446,26 @@ async function route(request, response) {
   }
 
   if (request.method === "POST" && action === "cancel") {
-    if (session.pty) {
+    if (session.query) {
       session.status = "cancelled";
-      session.pty.kill();
-      session.pty = null;
+      session.input?.close();
+      session.query.close();
+      session.abortController?.abort();
+      session.query = null;
+      session.input = null;
+      session.abortController = null;
       appendEvent(session, "run.cancelled", {});
     }
     return sendJson(response, 200, { ok: true, session: publicSession(session) });
   }
 
   if (request.method === "POST" && action === "resume") {
+    if (!session.query) {
+      startSdkRuntime(session, { resumeNativeSessionId: session.native_session_id });
+    }
     return sendJson(response, 200, {
       session: publicSession(session),
-      note: session.pty ? "Session is already live" : "Native Claude Code resume requires persisted Claude session state and is not started automatically by this endpoint yet",
+      note: session.native_session_id ? "Session runtime is live; future messages will resume through the Claude Agent SDK session." : "Session runtime is live, but no native Claude session id has been observed yet.",
     });
   }
 
@@ -349,7 +478,7 @@ async function route(request, response) {
   }
 
   if (request.method === "GET" && action === "logs") {
-    return sendJson(response, 200, { events: session.events.filter((event) => event.payload?.stream === "pty") });
+    return sendJson(response, 200, { events: session.events.filter((event) => event.type.startsWith("sdk.") || event.payload?.stream === "sdk") });
   }
 
   return sendJson(response, 404, { error: "Not found" });

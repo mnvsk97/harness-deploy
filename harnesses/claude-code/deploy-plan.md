@@ -4,7 +4,8 @@
 
 - Runtime: Node-based CLI distribution.
 - Install paths in docs/devcontainer include npm package/install script/Homebrew.
-- Headless mode: `claude -p` / print mode.
+- Headless mode exists through `claude -p` / print mode, but the service path
+  should use the Claude Agent SDK instead of terminal or print-mode wrapping.
 - Common config path: `/home/node/.claude` in the upstream devcontainer.
 - Common secrets: `ANTHROPIC_API_KEY`, optionally `ANTHROPIC_AUTH_TOKEN` or custom `ANTHROPIC_BASE_URL`.
 
@@ -13,7 +14,7 @@
 - `SecretGroup`: Anthropic key/token and base URL if using a gateway.
 - `Job`: best fit for bounded coding tasks.
 - `Volume`: optional persistence for `.claude` and `/workspace`.
-- `Service`: only if a wrapper exposes HTTP around `claude -p` or SDK calls.
+- `Service`: wrapper exposes HTTP/SSE around Claude Agent SDK calls.
 
 ## Recommended First Deploy
 

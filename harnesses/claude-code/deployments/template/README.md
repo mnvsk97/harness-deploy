@@ -6,9 +6,8 @@ Copy the root env example and set environment-specific values:
 cp .env.example .env
 ```
 
-This deployment exposes a PTY-backed HTTP/SSE gateway around an interactive
-Claude Code process. It intentionally does not use `claude -p` for the live
-session path.
+This deployment exposes an HTTP/SSE gateway around the Claude Agent SDK. It
+does not use a pseudo-terminal or `claude -p` for the live session path.
 
 Render and deploy:
 
@@ -49,5 +48,5 @@ Notes:
 - Model access is routed through the same TrueFoundry Gateway secret group used
   by the Codex deployment. The default model is
   `testmodel/global.anthropic.claude-sonnet-4-6`.
-- The service uses a block volume and single replica because live PTY sessions
-  and Claude config are stateful.
+- The service uses a block volume and single replica because SDK session
+  transcripts, workspaces, and Claude config are stateful.

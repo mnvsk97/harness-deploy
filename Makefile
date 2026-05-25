@@ -11,7 +11,11 @@ endif
 
 GOOSE_MODEL ?= openai-main/gpt-5.5
 GOOSE_API_HOST ?= goose-api$(patsubst hermes-api%,%,$(HERMES_API_HOST))
-GOOSE_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$CODEX_GATEWAY_SECRET_GROUP $$GOOSE_API_HOST $$GOOSE_MODEL'
+GOOSE_SECRET_GROUP ?= goose-api-secrets
+GOOSE_STORAGE_CLASS ?= managed-csi-premium
+GOOSE_SECRET_INTEGRATION_FQN ?= tenant:provider:cluster:secret-store:name
+GOOSE_SECRET_ADMIN_EMAIL ?= admin@example.com
+GOOSE_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$GOOSE_SECRET_GROUP $$GOOSE_SECRET_INTEGRATION_FQN $$GOOSE_SECRET_ADMIN_EMAIL $$GOOSE_API_HOST $$GOOSE_MODEL $$GOOSE_STORAGE_CLASS'
 HERMES_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$CODEX_GATEWAY_SECRET_GROUP $$HERMES_API_HOST'
 
 clean-rendered:
@@ -88,6 +92,7 @@ render-goose:
 	@test -n "$(ENVSUBST)" || (echo "envsubst not found. Install gettext or add envsubst to PATH." && exit 1)
 	@test -n "$(GOOSE_API_HOST)" || (echo "GOOSE_API_HOST is required. Set it in .env." && exit 1)
 	mkdir -p .rendered/goose
+	$(ENVSUBST) $(GOOSE_ENVSUBST_VARS) < harnesses/goose/deployments/template/secret-group.example.yaml > .rendered/goose/secret-group.yaml
 	$(ENVSUBST) $(GOOSE_ENVSUBST_VARS) < harnesses/goose/deployments/template/volume.yaml > .rendered/goose/volume.yaml
 	$(ENVSUBST) $(GOOSE_ENVSUBST_VARS) < harnesses/goose/deployments/template/api-service.yaml > .rendered/goose/api-service.yaml
 

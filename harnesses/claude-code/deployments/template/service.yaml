@@ -5,6 +5,7 @@ image:
   type: build
   build_source:
     type: local
+    local_build: false
     project_root_path: ${HARNESS_DEPLOY_ROOT}/harnesses/claude-code/gateway
   build_spec:
     type: dockerfile
@@ -23,15 +24,16 @@ env:
   CLAUDE_CONFIG_DIR: /data/claude
   CLAUDE_GATEWAY_STATE_DIR: /data/gateway-state
   CLAUDE_GATEWAY_MAX_EVENTS: "10000"
+  CLAUDE_MAX_TURNS: "20"
   WORKSPACE_ROOT: /data/workspaces
   CLAUDE_MODEL: testmodel/global.anthropic.claude-sonnet-4-6
   CLAUDE_PERMISSION_MODE: bypassPermissions
+  CLAUDE_ALLOWED_TOOLS: Bash,Read,Edit,Write,MultiEdit,Glob,Grep,LS,NotebookEdit,WebFetch,WebSearch
   ANTHROPIC_BASE_URL: "tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-BASE-URL"
   ANTHROPIC_AUTH_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${TFY_GATEWAY_SECRET_GROUP}:TFY-GATEWAY-API-KEY"
   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
   CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
   DISABLE_UPDATES: "1"
-  IS_DEMO: "1"
   GATEWAY_BEARER_TOKEN: "tfy-secret://${TFY_SECRET_TENANT}:${CLAUDE_CODE_GATEWAY_SECRET_GROUP}:CLAUDE-GATEWAY-BEARER-TOKEN"
 ports:
   - port: 3001

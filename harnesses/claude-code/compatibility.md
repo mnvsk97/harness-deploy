@@ -9,7 +9,8 @@
 
 - Claude Code is not an HTTP service by default.
 - Interactive terminal features do not directly translate to a service deployment.
-- Long-running worker mode should be wrapped with explicit queue/input/output handling.
+- Long-running service mode should be wrapped with explicit HTTP/SSE
+  input/output handling around the Claude Agent SDK.
 
 ## Risk
 

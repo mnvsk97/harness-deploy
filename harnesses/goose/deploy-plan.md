@@ -27,6 +27,7 @@ Start with the renderable server template:
 
 ```bash
 make render-goose
+tfy apply -f .rendered/goose/secret-group.yaml
 tfy apply -f .rendered/goose/volume.yaml --dry-run --show-diff
 make deploy-goose
 ```
@@ -45,8 +46,11 @@ not depend on a local Docker daemon.
 
 ## TrueFoundry Apply Order
 
-1. Ensure `.env` has `GOOSE_API_HOST` and `GOOSE_MODEL`.
+1. Ensure `.env` has `GOOSE_API_HOST`, `GOOSE_MODEL`, `GOOSE_SECRET_GROUP`,
+   `GOOSE_SECRET_INTEGRATION_FQN`, `GOOSE_SECRET_ADMIN_EMAIL`, and
+   `GOOSE_STORAGE_CLASS`.
 2. Run `make render-goose`.
-3. Dry-run and apply `.rendered/goose/volume.yaml`.
-4. Deploy `.rendered/goose/api-service.yaml` with `tfy deploy`.
-5. Register remote MCP only after a compatible endpoint exists.
+3. Apply a rendered Goose secret group with `GOOSE-SERVER-SECRET-KEY`.
+4. Dry-run and apply `.rendered/goose/volume.yaml`.
+5. Deploy `.rendered/goose/api-service.yaml` with `tfy deploy`.
+6. Register remote MCP only after a compatible endpoint exists.
