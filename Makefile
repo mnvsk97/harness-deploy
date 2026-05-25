@@ -7,7 +7,7 @@ include .env
 export
 endif
 
-.PHONY: render-codex deploy-codex render-claude-code deploy-claude-code render-hermes-agent deploy-hermes-agent render-hermes-agent-slack deploy-hermes-agent-slack render-slack-bridge deploy-slack-bridge render-pi deploy-pi render-goose deploy-goose clean-rendered
+.PHONY: render-codex deploy-codex render-claude-code deploy-claude-code render-hermes-agent deploy-hermes-agent render-hermes-agent-slack deploy-hermes-agent-slack render-slack-bridge deploy-slack-bridge render-pi deploy-pi render-goose deploy-goose render-openswe deploy-openswe clean-rendered
 
 GOOSE_MODEL ?= openai-main/gpt-5.5
 GOOSE_API_HOST ?= goose-api$(patsubst hermes-api%,%,$(HERMES_API_HOST))
@@ -17,6 +17,7 @@ GOOSE_SECRET_INTEGRATION_FQN ?= tenant:provider:cluster:secret-store:name
 GOOSE_SECRET_ADMIN_EMAIL ?= admin@example.com
 GOOSE_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$GOOSE_SECRET_GROUP $$GOOSE_SECRET_INTEGRATION_FQN $$GOOSE_SECRET_ADMIN_EMAIL $$GOOSE_API_HOST $$GOOSE_MODEL $$GOOSE_STORAGE_CLASS'
 HERMES_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$CODEX_GATEWAY_SECRET_GROUP $$HERMES_API_HOST'
+OPENSWE_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$OPENSWE_API_HOST'
 
 clean-rendered:
 	rm -rf .rendered
@@ -100,3 +101,13 @@ deploy-goose: render-goose
 	@test -n "$(TFY)" || (echo "tfy not found. Install TrueFoundry CLI or add tfy to PATH." && exit 1)
 	$(TFY) apply -f .rendered/goose/volume.yaml
 	$(TFY) deploy -f .rendered/goose/api-service.yaml --no-wait --force
+
+render-openswe:
+	@test -n "$(ENVSUBST)" || (echo "envsubst not found. Install gettext or add envsubst to PATH." && exit 1)
+	@test -n "$(OPENSWE_API_HOST)" || (echo "OPENSWE_API_HOST is required. Set it in .env." && exit 1)
+	mkdir -p .rendered/openswe
+	$(ENVSUBST) $(OPENSWE_ENVSUBST_VARS) < harnesses/openswe/deployments/template/service.yaml > .rendered/openswe/service.yaml
+
+deploy-openswe: render-openswe
+	@test -n "$(TFY)" || (echo "tfy not found. Install TrueFoundry CLI or add tfy to PATH." && exit 1)
+	$(TFY) deploy -f .rendered/openswe/service.yaml --no-wait --force

@@ -1,0 +1,55 @@
+name: openswe-service
+type: service
+workspace_fqn: ${TFY_WORKSPACE_FQN}
+image:
+  type: build
+  build_source:
+    type: local
+    project_root_path: ${HARNESS_DEPLOY_ROOT}/harnesses/openswe/deployments/template
+    local_build: false
+  build_spec:
+    type: dockerfile
+    dockerfile_path: Dockerfile
+    build_context_path: "."
+resources:
+  cpu_request: 1
+  cpu_limit: 2
+  memory_request: 2048
+  memory_limit: 4096
+  ephemeral_storage_request: 4096
+  ephemeral_storage_limit: 8192
+replicas: 1
+env:
+  SANDBOX_TYPE: local
+  LOCAL_SANDBOX_ROOT_DIR: /workspace/open-swe
+  LANGGRAPH_URL_PROD: http://localhost:2024
+  DASHBOARD_ALLOWED_ORIGINS: "*"
+ports:
+  - port: 2024
+    protocol: TCP
+    expose: true
+    host: ${OPENSWE_API_HOST}
+    app_protocol: http
+readiness_probe:
+  config:
+    type: http
+    path: /health
+    port: 2024
+  initial_delay_seconds: 30
+  period_seconds: 15
+  timeout_seconds: 5
+  failure_threshold: 6
+liveness_probe:
+  config:
+    type: http
+    path: /health
+    port: 2024
+  initial_delay_seconds: 60
+  period_seconds: 20
+  timeout_seconds: 5
+  failure_threshold: 6
+rollout_strategy:
+  type: rolling_update
+  max_unavailable_percentage: 100
+  max_surge_percentage: 0
+allow_interception: false
