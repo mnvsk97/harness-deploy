@@ -9,7 +9,7 @@ which defaults to `/opt/data` in Docker.
 This harness has two deployable service templates:
 
 - `deployments/template/api-service.yaml`: OpenAI-compatible API server mode.
-- `deployments/template/slack-service.yaml`: native Slack Socket Mode worker.
+- `deployments/template/slack-service.yaml`: legacy Slack worker template.
 
-The Slack worker uses Hermes' own Slack adapter rather than the generic bridge.
-It connects outbound to Slack and does not expose a Slack Events webhook.
+Slack Socket Mode is not supported for this project. Deploy Slack integrations
+through an HTTP Events bridge with an exposed webhook.

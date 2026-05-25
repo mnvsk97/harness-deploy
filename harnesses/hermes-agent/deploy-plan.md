@@ -23,8 +23,8 @@
 - State: `Volume` mounted at `/opt/data`.
 - Credentials: `SecretGroup`.
 - Optional service port: `9119` dashboard or API server port if enabled.
-- Slack: native Hermes Slack adapter in a separate `Service` running outbound
-  Socket Mode with no exposed port.
+- Slack: use an HTTP Events bridge with an exposed webhook. Socket Mode is not
+  supported in this project.
 - Use one replica because state is file-backed and gateway-oriented.
 
 ## Deployment Steps

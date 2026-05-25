@@ -36,9 +36,7 @@ env:
   OPENCLAW_CONFIG_DIR: /home/node/.openclaw
   OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
   OPENCLAW_GATEWAY_TOKEN: tfy-secret://WORKSPACE_OR_USER:openclaw-secrets:OPENCLAW_GATEWAY_TOKEN
-  SLACK_SOCKET_MODE: "true"
   SLACK_BOT_TOKEN: tfy-secret://WORKSPACE_OR_USER:openclaw-secrets:SLACK_BOT_TOKEN
-  SLACK_APP_TOKEN: tfy-secret://WORKSPACE_OR_USER:openclaw-secrets:SLACK_APP_TOKEN
   SLACK_ALLOWED_USERS: tfy-secret://WORKSPACE_OR_USER:openclaw-secrets:SLACK_ALLOWED_USERS
   SLACK_ALLOWED_CHANNELS: tfy-secret://WORKSPACE_OR_USER:openclaw-secrets:SLACK_ALLOWED_CHANNELS
   SLACK_REQUIRE_MENTION: "true"
