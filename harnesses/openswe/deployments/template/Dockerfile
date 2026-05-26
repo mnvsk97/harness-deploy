@@ -20,9 +20,7 @@ RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
 
 WORKDIR /workspace
 
-CMD bash -lc 'set -euo pipefail; \
-  rm -rf /workspace/open-swe; \
-  git clone https://github.com/langchain-ai/open-swe /workspace/open-swe; \
-  cd /workspace/open-swe; \
-  git checkout "${OPEN_SWE_REF}"; \
-  /root/.local/bin/uv run langgraph dev --host 0.0.0.0 --port 2024 --no-browser'
+COPY start-openswe.sh /usr/local/bin/start-openswe
+RUN chmod +x /usr/local/bin/start-openswe
+
+CMD ["/usr/local/bin/start-openswe"]

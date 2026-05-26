@@ -10,6 +10,12 @@ const slackSigningSecret = requiredEnv("SLACK_SIGNING_SECRET");
 const harnessName = process.env.HARNESS_NAME || "target-harness";
 const harnessApiUrl = requiredEnv("HARNESS_API_URL").replace(/\/+$/, "");
 const harnessApiToken = process.env.HARNESS_API_TOKEN || "";
+const harnessAuthHeader = process.env.HARNESS_AUTH_HEADER || "authorization";
+const harnessAuthSchemeRaw = process.env.HARNESS_AUTH_SCHEME;
+const harnessAuthScheme = harnessAuthSchemeRaw === "none" ? "" : (harnessAuthSchemeRaw || (harnessAuthHeader.toLowerCase() === "authorization" ? "Bearer" : ""));
+const harnessBodyProfile = process.env.HARNESS_BODY_PROFILE || "generic";
+const sendInitialMessageAfterCreate = boolEnv("HARNESS_SEND_INITIAL_MESSAGE_AFTER_CREATE", false);
+const harnessWorkingDir = process.env.HARNESS_WORKING_DIR || "/data/workspaces/slack";
 const requireMention = boolEnv("SLACK_REQUIRE_MENTION", true);
 const strictMention = boolEnv("SLACK_STRICT_MENTION", true);
 const allowedUsers = csvSet(process.env.SLACK_ALLOWED_USERS || "");
@@ -240,23 +246,103 @@ function templatePath(template, sessionId) {
   return template.replaceAll("{session_id}", encodeURIComponent(sessionId));
 }
 
+function authHeaders() {
+  if (!harnessApiToken) return {};
+  const value = harnessAuthScheme ? `${harnessAuthScheme} ${harnessApiToken}` : harnessApiToken;
+  return { [harnessAuthHeader]: value };
+}
+
+function slackContext(message, slack = {}) {
+  return { message, source: "slack", slack };
+}
+
+function gooseMessage(message) {
+  return {
+    request_id: crypto.randomUUID(),
+    user_message: {
+      id: null,
+      role: "user",
+      created: Math.floor(Date.now() / 1000),
+      content: [{ type: "text", text: message }],
+      metadata: {},
+    },
+  };
+}
+
+function buildCreateBody(message, slack = {}) {
+  if (harnessBodyProfile === "goose") return { working_dir: harnessWorkingDir };
+  if (harnessBodyProfile === "openswe-dashboard") return { prompt: message };
+  return slackContext(message, slack);
+}
+
+function buildMessageBody(message, slack = {}) {
+  if (harnessBodyProfile === "goose") return gooseMessage(message);
+  if (harnessBodyProfile === "openswe-dashboard") return { content: message };
+  return slackContext(message, slack);
+}
+
+function parseSseEvents(text) {
+  return String(text || "")
+    .split(/\n\n+/)
+    .map((block) => {
+      const eventType = block.split(/\r?\n/).find((line) => line.startsWith("event:"))?.slice(6).trim();
+      const data = block
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n")
+        .trim();
+      if (!data || data === "[DONE]") return null;
+      try {
+        const parsed = JSON.parse(data);
+        if (eventType && parsed && typeof parsed === "object" && !parsed.type) parsed.type = eventType;
+        return parsed;
+      } catch {
+        return { type: eventType || "message", text: data };
+      }
+    })
+    .filter(Boolean);
+}
+
 async function harnessFetch(path, { method = "GET", body, timeoutMs = requestTimeoutMs } = {}) {
   const response = await fetch(`${harnessApiUrl}${path}`, {
     method,
     signal: AbortSignal.timeout(timeoutMs),
     headers: {
       "content-type": "application/json",
-      ...(harnessApiToken ? { authorization: `Bearer ${harnessApiToken}` } : {}),
+      ...authHeaders(),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const text = await response.text();
+  const contentType = response.headers.get("content-type") || "";
   let payload = {};
-  if (text) {
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      payload = { text };
+  if (contentType.includes("text/event-stream")) {
+    let text = "";
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    if (reader) {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          text += decoder.decode(value, { stream: true });
+        }
+      } catch (error) {
+        if (error.name !== "AbortError") throw error;
+      }
+      text += decoder.decode();
+    }
+    payload = { events: parseSseEvents(text) };
+  } else {
+    const text = await response.text();
+    if (!text) {
+      payload = {};
+    } else {
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        payload = { text };
+      }
     }
   }
   if (!response.ok) throw new Error(payload.error || payload.message || `Harness returned HTTP ${response.status}`);
@@ -264,7 +350,7 @@ async function harnessFetch(path, { method = "GET", body, timeoutMs = requestTim
 }
 
 function extractSessionId(payload) {
-  return payload?.session?.id || payload?.thread?.id || payload?.session_id || payload?.threadId || payload?.id || null;
+  return payload?.session?.id || payload?.thread?.id || payload?.thread_id || payload?.session_id || payload?.threadId || payload?.id || null;
 }
 
 function eventId(event, index) {
@@ -280,7 +366,11 @@ function extractEvents(payload) {
 
 function eventText(event) {
   const type = event.type || event.event?.method || "";
-  if (type && !["assistant.message", "run.completed", "run.failed"].some((prefix) => type.startsWith(prefix))) return "";
+  if (event.message?.role && event.message.role !== "assistant") return "";
+  if (Array.isArray(event.message?.content)) {
+    return event.message.content.map((item) => item.text || item.content || "").filter(Boolean).join("\n").trim();
+  }
+  if (type && !["assistant.message", "run.completed", "run.failed", "Message", "messages/partial", "messages/complete"].some((prefix) => type.startsWith(prefix))) return "";
   const payload = event.payload || event.event?.params || event;
   const value = payload.text || payload.message || payload.content || payload.output || "";
   if (typeof value === "string") return value.trim();
@@ -443,7 +533,7 @@ async function handleSlackMessage(envelope) {
     if (!sessionId) {
       const created = await harnessFetch(createPath, {
         method: "POST",
-        body: { message, source: "slack", slack: { channel, user: event.user, thread_ts: slackThread, team: envelope.team_id } },
+        body: buildCreateBody(message, { channel, user: event.user, thread_ts: slackThread, team: envelope.team_id }),
       });
       sessionId = extractSessionId(created);
       if (!sessionId) throw new Error("Harness response did not include a session id");
@@ -451,11 +541,17 @@ async function handleSlackMessage(envelope) {
       metrics.lastSessionId = sessionId;
       sessions.set(key, record);
       persistState();
+      if (sendInitialMessageAfterCreate) {
+        await harnessFetch(templatePath(messagePathTemplate, sessionId), {
+          method: "POST",
+          body: buildMessageBody(message, { channel, user: event.user, thread_ts: slackThread, team: envelope.team_id }),
+        });
+      }
     } else {
       metrics.lastSessionId = sessionId;
       await harnessFetch(templatePath(messagePathTemplate, sessionId), {
         method: "POST",
-        body: { message, source: "slack", slack: { channel, user: event.user, thread_ts: slackThread, team: envelope.team_id } },
+        body: buildMessageBody(message, { channel, user: event.user, thread_ts: slackThread, team: envelope.team_id }),
       });
     }
 

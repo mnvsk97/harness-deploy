@@ -1,0 +1,12 @@
+extensions:
+  daytona:
+    enabled: true
+    type: stdio
+    name: Daytona Sandbox
+    description: "Per-session Daytona sandbox tools for isolated process and file execution."
+    cmd: /opt/goose-daytona-mcp/.venv/bin/python
+    args:
+      - /opt/goose-daytona-mcp/daytona_mcp_server.py
+    env_keys:
+      - DAYTONA_API_KEY
+    timeout: 600

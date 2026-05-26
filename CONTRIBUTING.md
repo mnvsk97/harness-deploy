@@ -22,7 +22,7 @@ make clean-rendered render-codex render-claude-code render-hermes-agent render-p
 node --check harnesses/codex/gateway/server.js
 node --check harnesses/claude-code/gateway/server.js
 node --check harnesses/pi/gateway/server.js
-python3 -m py_compile scripts/slackify_manifest.py
+python3 -m py_compile scripts/create_slack_app.py
 ```
 
 Also scan committed files for raw secrets and environment-specific values. Keep

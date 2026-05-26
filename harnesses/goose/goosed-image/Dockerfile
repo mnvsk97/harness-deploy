@@ -48,15 +48,25 @@ RUN apt-get update && \
       libdbus-1-3 \
       libgomp1 \
       libssl3 \
+      python3 \
+      python3-venv \
       libxcb1 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/goose/target/release/goosed /usr/local/bin/goosed
+COPY daytona_mcp_server.py /opt/goose-daytona-mcp/daytona_mcp_server.py
+COPY goose-system-config.yaml /etc/goose/config.yaml
+
+RUN python3 -m venv /opt/goose-daytona-mcp/.venv && \
+    /opt/goose-daytona-mcp/.venv/bin/pip install --no-cache-dir --upgrade pip && \
+    /opt/goose-daytona-mcp/.venv/bin/pip install --no-cache-dir \
+      daytona==0.181.0 \
+      mcp==1.27.1
 
 RUN useradd -m -u 1000 -s /bin/bash goose && \
     mkdir -p /data/home /data/workspace && \
-    chown -R goose:goose /data /home/goose
+    chown -R goose:goose /data /home/goose /opt/goose-daytona-mcp
 
 ENV PATH="/usr/local/bin:${PATH}"
 ENV HOME="/data/home"

@@ -1,19 +1,24 @@
-# Open SWE on TrueFoundry
+# Open SWE
 
 Source repo: https://github.com/langchain-ai/open-swe
 
 Open SWE is a LangGraph and Deep Agents based asynchronous coding-agent harness.
-It exposes webhook surfaces for GitHub, Linear, and Slack, then runs coding tasks
-inside isolated cloud sandboxes such as LangSmith, Modal, Daytona, or Runloop.
+This repo runs it as a long-running HTTP service with Daytona for sandboxing and
+TrueFoundry Gateway for model access.
 
-For TrueFoundry, treat Open SWE as a long-running HTTP service behind the
-standard Harness Exposure Layer. Its native webhooks and LangGraph endpoints are
-harness-native extension surfaces, not the repo-wide public contract.
+## TrueFoundry Mapping
 
-## Files
+| Original repo surface | TrueFoundry component | Notes |
+| --- | --- | --- |
+| LangGraph/FastAPI server | `Service` | Main deployed Open SWE service. |
+| Daytona sandbox credentials | `SecretGroup` | Stores `DAYTONA_API_KEY` and related runtime secrets. |
+| Model access | `SecretGroup` | Routes through TrueFoundry Gateway via `OPENAI_BASE_URL` and key. |
+| LangGraph threads/runs | Service API | Treated as harness-native APIs behind the standard exposure layer. |
+| Slack bot | `Service + SecretGroup + Volume` | Uses the shared HTTP Events bridge, not Socket Mode. |
 
-- `deploy-plan.md`: repo findings and TrueFoundry mapping.
-- `compatibility.md`: deployment caveats and protocol notes.
-- `smoke-test.md`: validation steps.
-- `manifests/secret-group.example.yaml`: required provider and integration secrets.
-- `manifests/service-source-build.template.yaml`: source-build service template.
+## Start Here
+
+- Deploy/API details: `deployments/template/README.md`
+- Full mapping notes: `deploy-plan.md`
+- Compatibility notes: `compatibility.md`
+- Smoke tests: `smoke-test.md`

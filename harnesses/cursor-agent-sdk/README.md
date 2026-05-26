@@ -1,16 +1,24 @@
-# Cursor Agent SDK TrueFoundry Harness
+# Cursor Agent SDK
 
 Source repo: https://github.com/cursor/cookbook
 
 Research snapshot: `.research/repos/cursor-agent-sdk` at `4ea8442`.
 
-The self-hosted cloud-agent path is the closest deployable target: TrueFoundry runs outbound Cursor worker pods, while Cursor still handles orchestration and model inference.
+The closest deployable upstream path is Cursor's self-hosted cloud-agent worker.
+TrueFoundry hosts worker pods; Cursor remains the external control plane.
 
-## Files
+## TrueFoundry Mapping
 
-- `deploy-plan.md`: repo findings and TrueFoundry mapping.
-- `compatibility.md`: worker model caveats.
-- `smoke-test.md`: validation steps.
-- `manifests/secret-group.example.yaml`: Cursor API key.
-- `manifests/service.yaml`: outbound worker deployment.
-- `manifests/management-service.template.yaml`: optional exposed management port.
+| Original repo surface | TrueFoundry component | Notes |
+| --- | --- | --- |
+| Self-hosted cloud-agent worker | `Service` | Long-running outbound worker, usually no public ingress. |
+| Cursor API key | `SecretGroup` | Stores service-account credential. |
+| Worker cache/workspace | Optional `Volume` | Add only when worker jobs need persistence. |
+| Management address | Optional `Service` port | Expose only when explicitly needed. |
+| Slack bot | Not native | Use a separate bridge only after adding a target API. |
+
+## Start Here
+
+- Full mapping notes: `deploy-plan.md`
+- Compatibility notes: `compatibility.md`
+- Smoke tests: `smoke-test.md`

@@ -12,7 +12,11 @@ Mode is always off for this project; do not configure `SLACK_APP_TOKEN`.
 
 ## Required Slack App Setup
 
-Create or update a Slack app from the rendered manifest:
+Use a separate Slack app per harness unless you intentionally want one bot
+identity to route across multiple harnesses. Donna is the Claude Code app; do
+not reuse Donna's bot token for Codex, Pi, Goose, or Open SWE.
+
+Create or update a harness-specific Slack app from the rendered manifest:
 
 ```bash
 make render-slack-bridge
@@ -50,6 +54,53 @@ The Slack app needs these bot scopes:
    `SecretGroup`; put the target harness token in the configured target
    `SecretGroup`.
 6. Run `make deploy-slack-bridge`.
+
+For per-harness bot identities, use the harness-specific editable manifests:
+
+- `harnesses/codex/deployments/template/slack-app-manifest.editable.json`
+- `harnesses/claude-code/deployments/template/slack-app-manifest.editable.json`
+- `harnesses/pi/deployments/template/slack-app-manifest.editable.json`
+- `harnesses/goose/deployments/template/slack-app-manifest.editable.json`
+- `harnesses/openswe/deployments/template/slack-app-manifest.editable.json`
+
+Each editable manifest uses `${HARNESS_API_URL}` for the Slack Events request
+URL. Copy the matching harness-local `.env.example` to `.env`, set
+`HARNESS_API_URL` to that harness's public Slack bridge URL, then replace the
+placeholder before pasting into Slack.
+
+Or render from `.env` with the harness-specific targets:
+
+```bash
+make render-codex-slack
+make render-claude-code-slack
+make render-pi-slack
+make render-goose-slack
+make render-openswe-slack
+```
+
+Each render target reads `HARNESS_API_URL` from that harness folder's `.env`
+when present and writes a concrete request URL to `.rendered/<harness>/slack-app-manifest.json`.
+Each Slack app manifest should be installed as its own Slack app/bot.
+
+To create the Slack app through Slack's App Manifest API, generate a Slack app
+configuration token, set it as `SLACK_APP_CONFIG_TOKEN` in the root `.env` or
+the shell, and run the matching create target:
+
+```bash
+make create-codex-slack-app
+make create-claude-code-slack-app
+make create-pi-slack-app
+make create-goose-slack-app
+make create-openswe-slack-app
+```
+
+For org-level tokens, also set `SLACK_TEAM_ID`. The create target writes the
+full Slack response to `.rendered/<harness>/slack-app-create-response.json` and
+prints the `app_id`, `signing_secret`, and `oauth_authorize_url`.
+
+Slack still requires installing/approving the created app from the returned
+OAuth URL. After install, copy the bot token and signing secret into that
+harness's Slack `SecretGroup`, then deploy the bridge.
 
 ## Bridge Configuration
 

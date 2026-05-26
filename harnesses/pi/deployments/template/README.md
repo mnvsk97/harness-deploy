@@ -52,3 +52,39 @@ Notes:
   volume.
 - The current gateway executes Pi tools in the service workspace. For untrusted
   user workloads, add an external sandbox worker before exposing this broadly.
+
+## Slack bridge
+
+Pi uses the same shared Slack HTTP Events bridge as Claude Code. The per-harness
+Slack template points the bridge at:
+
+- `POST /v1/agents/pi/sessions`
+- `POST /v1/sessions/{session_id}/events`
+- `GET /v1/sessions/{session_id}/events`
+
+Use a separate Slack app/bot for Pi. Do not reuse Donna's Claude Code bot token.
+Store the Pi app credentials in `${PI_SLACK_SECRET_GROUP}`.
+
+Render and deploy:
+
+```bash
+make render-pi-slack
+make deploy-pi-slack
+```
+
+Create or update the Slack app from this copy-paste manifest:
+
+```text
+harnesses/pi/deployments/template/slack-app-manifest.editable.json
+```
+
+Before pasting, copy the harness-local env example to `.env` and set
+`HARNESS_API_URL` to the public Slack bridge URL:
+
+```text
+harnesses/pi/deployments/template/.env
+```
+
+The editable manifest uses `${HARNESS_API_URL}/slack/events`. If you run
+`make render-pi-slack`, that harness-local `.env` value is used for
+`.rendered/pi/slack-app-manifest.json`.

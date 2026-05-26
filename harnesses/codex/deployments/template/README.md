@@ -81,3 +81,39 @@ Current smoke-test result:
   response `codex-ok`.
 - The app-server gateway is configured through Codex `config.toml` to use the
   TrueFoundry Gateway base URL secret with `openai-main/gpt-5.5`.
+
+## Slack bridge
+
+Codex uses the same shared Slack HTTP Events bridge as Claude Code. The
+per-harness Slack template points the bridge at:
+
+- `POST /sessions`
+- `POST /sessions/{session_id}/messages`
+- `GET /sessions/{session_id}/events`
+
+Use a separate Slack app/bot for Codex. Do not reuse Donna's Claude Code bot
+token. Store the Codex app credentials in `${CODEX_SLACK_SECRET_GROUP}`.
+
+Render and deploy:
+
+```bash
+make render-codex-slack
+make deploy-codex-slack
+```
+
+Create or update the Slack app from this copy-paste manifest:
+
+```text
+harnesses/codex/deployments/template/slack-app-manifest.editable.json
+```
+
+Before pasting, copy the harness-local env example to `.env` and set
+`HARNESS_API_URL` to the public Slack bridge URL:
+
+```text
+harnesses/codex/deployments/template/.env
+```
+
+The editable manifest uses `${HARNESS_API_URL}/slack/events`. If you run
+`make render-codex-slack`, that harness-local `.env` value is used for
+`.rendered/codex/slack-app-manifest.json`.

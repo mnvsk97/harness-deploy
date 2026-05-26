@@ -33,8 +33,19 @@ make render-claude-code-slack
 Create or update the Slack app from:
 
 ```text
-.rendered/claude-code/slack-app-manifest.json
+harnesses/claude-code/deployments/template/slack-app-manifest.editable.json
 ```
+
+Before pasting, copy the harness-local env example to `.env` and set
+`HARNESS_API_URL` to the public Slack bridge URL:
+
+```text
+harnesses/claude-code/deployments/template/.env
+```
+
+The editable manifest uses `${HARNESS_API_URL}/slack/events`. If you run
+`make render-claude-code-slack`, that harness-local `.env` value is used for
+`.rendered/claude-code/slack-app-manifest.json`.
 
 Deploy the bridge with:
 

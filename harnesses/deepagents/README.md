@@ -1,16 +1,25 @@
-# DeepAgents TrueFoundry Harness
+# DeepAgents
 
 Source repo: https://github.com/langchain-ai/deepagents
 
 Research snapshot: `.research/repos/deepagents` at `0bd35b2`.
 
-DeepAgents is a Python SDK for building durable LangGraph-based agents. The upstream repo has a `deepagents deploy` path for LangSmith-hosted agents, but the TrueFoundry shape is different: package the agent code as either an HTTP service wrapper or a finite job.
+DeepAgents is a Python SDK for building durable LangGraph agents. TrueFoundry
+does not deploy the SDK by itself; it deploys a job or a small HTTP wrapper that
+imports a specific DeepAgents app.
 
-## Files
+## TrueFoundry Mapping
 
-- `deploy-plan.md`: repo findings and TrueFoundry mapping.
-- `compatibility.md`: what works directly and what needs a wrapper.
-- `smoke-test.md`: checks after apply.
-- `manifests/secret-group.example.yaml`: provider and LangSmith secrets.
-- `manifests/job.yaml`: one-shot coding agent job template.
-- `manifests/service-wrapper.template.yaml`: HTTP wrapper service template for custom DeepAgents apps.
+| Original repo surface | TrueFoundry component | Notes |
+| --- | --- | --- |
+| One-shot DeepAgents run | `Job` | Best first validation path. |
+| Custom DeepAgents API wrapper | `Service` | Needed for production HTTP APIs. |
+| Provider and LangSmith credentials | `SecretGroup` | Stores model and tracing/sandbox keys. |
+| Workspace or memory files | Optional `Volume` | Only needed if the wrapper persists local state. |
+| Slack bot | Not native | Use shared Slack bridge after adding a target HTTP API. |
+
+## Start Here
+
+- Full mapping notes: `deploy-plan.md`
+- Compatibility notes: `compatibility.md`
+- Smoke tests: `smoke-test.md`

@@ -1,11 +1,7 @@
 {
-  "_metadata": {
-    "major_version": 1,
-    "minor_version": 0
-  },
   "display_information": {
-    "name": "${SLACK_BRIDGE_APP_NAME}",
-    "description": "Slack app for ${SLACK_BRIDGE_HARNESS_NAME} on TrueFoundry"
+    "name": "Donna",
+    "description": "Slack app for claude-code on TrueFoundry"
   },
   "features": {
     "app_home": {
@@ -14,7 +10,7 @@
       "messages_tab_read_only_enabled": false
     },
     "bot_user": {
-      "display_name": "${SLACK_BRIDGE_APP_NAME}",
+      "display_name": "Donna",
       "always_online": true
     }
   },

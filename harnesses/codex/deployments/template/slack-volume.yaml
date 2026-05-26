@@ -1,0 +1,7 @@
+name: codex-slack-bridge-state-block
+type: volume
+workspace_fqn: ${TFY_WORKSPACE_FQN}
+config:
+  type: dynamic
+  size: 5
+  storage_class: ${CODEX_SLACK_STORAGE_CLASS}

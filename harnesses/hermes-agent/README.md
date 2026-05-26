@@ -1,15 +1,25 @@
-# Hermes Agent on TrueFoundry
+# Hermes Agent
 
-Repo inspected: `https://github.com/NousResearch/hermes-agent` at `9c08070`.
+Source repo: https://github.com/NousResearch/hermes-agent
 
-Hermes ships a Dockerfile and compose setup. The durable runtime is the gateway
-process plus optional dashboard/API server. It stores state under `HERMES_HOME`,
-which defaults to `/opt/data` in Docker.
+Research snapshot: `.research/repos/hermes-agent` at `9c08070`.
 
-This harness has two deployable service templates:
+Hermes ships Docker and compose paths for a gateway plus optional dashboard/API
+server. This repo uses the API-server mode as the durable TrueFoundry entrypoint.
 
-- `deployments/template/api-service.yaml`: OpenAI-compatible API server mode.
-- `deployments/template/slack-service.yaml`: legacy Slack worker template.
+## TrueFoundry Mapping
 
-Slack Socket Mode is not supported for this project. Deploy Slack integrations
-through an HTTP Events bridge with an exposed webhook.
+| Original repo surface | TrueFoundry component | Notes |
+| --- | --- | --- |
+| Hermes API/gateway process | `Service` | Main deployed runtime. |
+| `HERMES_HOME` state under `/opt/data` | `Volume` | Keeps Hermes state durable. |
+| Provider keys and API token | `SecretGroup` | Stores model/channel credentials and API server key. |
+| Dashboard | Optional `Service` | Enable after the API service works. |
+| Native Slack worker | Not used | Project uses HTTP Events bridge instead of Socket Mode. |
+
+## Start Here
+
+- Deploy/API details: `deployments/template/README.md`
+- Full mapping notes: `deploy-plan.md`
+- Compatibility notes: `compatibility.md`
+- Smoke tests: `smoke-test.md`
