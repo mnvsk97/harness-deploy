@@ -13,8 +13,8 @@ Mode is always off for this project; do not configure `SLACK_APP_TOKEN`.
 ## Required Slack App Setup
 
 Use a separate Slack app per harness unless you intentionally want one bot
-identity to route across multiple harnesses. Donna is the Claude Code app; do
-not reuse Donna's bot token for Codex, Pi, Goose, or Open SWE.
+identity to route across multiple harnesses. Claude Code Test is the Claude
+Code app; do not reuse its bot token for Codex, Pi, Goose, or Open SWE.
 
 Create or update a harness-specific Slack app from the rendered manifest:
 
@@ -104,8 +104,8 @@ harness's Slack `SecretGroup`, then deploy the bridge.
 
 ## Bridge Configuration
 
-The bridge lives in `shared/slack/bridge`. It is for harnesses that expose an
-HTTP session surface:
+The bridge lives in `shared/slack/bridge`. By default it is for harnesses that
+expose an HTTP session surface:
 
 - `POST /sessions`
 - `POST /sessions/{session_id}/messages`
@@ -135,6 +135,30 @@ SLACK_PROCESSED_EVENT_LIMIT=5000
 
 Set `SLACK_BRIDGE_POLL_EVENTS=false` for harnesses that do not expose a JSON
 event-list endpoint yet.
+
+For Hermes or another OpenAI-compatible chat service, set:
+
+```bash
+SLACK_BRIDGE_BODY_PROFILE=openai-chat
+SLACK_BRIDGE_OPENAI_CHAT_PATH=/v1/chat/completions
+SLACK_BRIDGE_OPENAI_MAX_HISTORY_MESSAGES=20
+SLACK_BRIDGE_OPENAI_TEMPERATURE=0
+SLACK_BRIDGE_OPENAI_SEND_USER=true
+SLACK_BRIDGE_OPENAI_SEND_SESSION_KEY=true
+SLACK_BRIDGE_OPENAI_INJECT_SLACK_IDENTITY_GUARD=true
+SLACK_SESSION_SCOPE=thread-user
+SLACK_BRIDGE_POLL_EVENTS=false
+```
+
+The `openai-chat` profile maps each Slack thread plus Slack user to one
+persisted conversation history and calls the chat-completions endpoint
+directly. It also sends the stable Slack user key as `X-Hermes-Session-Key`
+by default, so Hermes can scope durable memory by Slack user. It also sends
+the same key as the OpenAI-compatible `user` field for services that honor it.
+The identity guard adds a system message telling Hermes not to use global or
+cross-user personal memories for the current Slack user.
+It does not send a model by default, so the target service keeps control of
+the default model.
 
 For accepted Slack events, the bridge maps one Slack thread to one harness
 session, reacts to the user message while the run is active, and edits one

@@ -8,7 +8,7 @@ include .env
 export
 endif
 
-.PHONY: render-codex deploy-codex render-codex-slack deploy-codex-slack create-codex-slack-app render-claude-code deploy-claude-code render-claude-code-slack deploy-claude-code-slack create-claude-code-slack-app render-hermes-agent deploy-hermes-agent render-slack-bridge deploy-slack-bridge create-slack-app render-pi deploy-pi render-pi-slack deploy-pi-slack create-pi-slack-app render-goose deploy-goose render-goose-slack deploy-goose-slack create-goose-slack-app render-openswe-secrets deploy-openswe-secrets render-openswe deploy-openswe render-openswe-slack deploy-openswe-slack create-openswe-slack-app clean-rendered
+.PHONY: render-codex deploy-codex render-codex-slack deploy-codex-slack create-codex-slack-app render-claude-code deploy-claude-code render-claude-code-slack deploy-claude-code-slack create-claude-code-slack-app render-hermes-agent deploy-hermes-agent render-hermes-agent-slack create-hermes-agent-slack-app render-slack-bridge deploy-slack-bridge create-slack-app render-pi deploy-pi render-pi-slack deploy-pi-slack create-pi-slack-app render-goose deploy-goose render-goose-slack deploy-goose-slack create-goose-slack-app render-openswe-secrets deploy-openswe-secrets render-openswe deploy-openswe render-openswe-slack deploy-openswe-slack create-openswe-slack-app clean-rendered
 
 GOOSE_MODEL ?= openai-main/gpt-5.5
 GOOSE_API_HOST ?= goose-api$(patsubst hermes-api%,%,$(HERMES_API_HOST))
@@ -22,7 +22,10 @@ GOOSE_SECRET_INTEGRATION_FQN ?= tenant:provider:cluster:secret-store:name
 GOOSE_SECRET_ADMIN_EMAIL ?= admin@example.com
 GOOSE_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$GOOSE_SECRET_GROUP $$GOOSE_SECRET_INTEGRATION_FQN $$GOOSE_SECRET_ADMIN_EMAIL $$GOOSE_API_HOST $$GOOSE_MODEL $$GOOSE_STORAGE_CLASS $$DAYTONA_API_KEY'
 GOOSE_SLACK_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$GOOSE_SECRET_GROUP $$GOOSE_API_HOST $$GOOSE_SLACK_HOST $$GOOSE_SLACK_SECRET_GROUP $$GOOSE_SLACK_STORAGE_CLASS'
-HERMES_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$CODEX_GATEWAY_SECRET_GROUP $$HERMES_API_HOST'
+HERMES_VOLUME_NAME ?= hermes-state-block
+HERMES_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$CODEX_GATEWAY_SECRET_GROUP $$HERMES_API_HOST $$HERMES_VOLUME_NAME'
+HERMES_SLACK_HOST ?= hermes-slack$(patsubst hermes-api%,%,$(HERMES_API_HOST))
+HERMES_SLACK_APP_NAME ?= Hermes
 OPENSWE_SECRET_GROUP ?= openswe-secrets
 OPENSWE_DEFAULT_REPO ?=
 OPENSWE_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$TFY_GATEWAY_SECRET_GROUP $$OPENSWE_SECRET_GROUP $$OPENSWE_API_HOST $$OPENSWE_DEFAULT_REPO'
@@ -38,7 +41,7 @@ CODEX_SLACK_SECRET_GROUP ?= codex-slack-gateway-secrets
 CODEX_SLACK_APP_NAME ?= Codex
 CODEX_SLACK_STORAGE_CLASS ?= managed-csi-premium
 CODEX_SLACK_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$CODEX_GATEWAY_SECRET_GROUP $$CODEX_GATEWAY_HOST $$CODEX_SLACK_HOST $$CODEX_SLACK_SECRET_GROUP $$CODEX_SLACK_STORAGE_CLASS'
-CLAUDE_CODE_SLACK_APP_NAME ?= Donna
+CLAUDE_CODE_SLACK_APP_NAME ?= Claude Code Test
 CLAUDE_CODE_SLACK_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$CLAUDE_CODE_SLACK_SECRET_GROUP $$CLAUDE_CODE_GATEWAY_SECRET_GROUP $$CLAUDE_CODE_GATEWAY_URL $$CLAUDE_CODE_SLACK_HOST'
 PI_SLACK_HOST ?= pi-slack$(patsubst pi-steppable-gateway%,%,$(PI_GATEWAY_HOST))
 PI_SLACK_SECRET_GROUP ?= pi-slack-gateway-secrets
@@ -52,10 +55,17 @@ SLACK_BRIDGE_AUTH_SCHEME ?= Bearer
 SLACK_BRIDGE_BODY_PROFILE ?= generic
 SLACK_BRIDGE_SEND_INITIAL_MESSAGE_AFTER_CREATE ?= false
 SLACK_BRIDGE_WORKING_DIR ?= /data/workspaces/slack
+SLACK_BRIDGE_OPENAI_CHAT_PATH ?= /v1/chat/completions
+SLACK_BRIDGE_OPENAI_MAX_HISTORY_MESSAGES ?= 20
+SLACK_BRIDGE_OPENAI_TEMPERATURE ?= 0
+SLACK_BRIDGE_OPENAI_SEND_USER ?= true
+SLACK_BRIDGE_OPENAI_SEND_SESSION_KEY ?= true
+SLACK_BRIDGE_OPENAI_INJECT_SLACK_IDENTITY_GUARD ?= true
+SLACK_SESSION_SCOPE ?= thread-user
 SLACK_BRIDGE_IGNORE_EVENT_TIMEOUTS ?= false
 export SLACK_BRIDGE_APP_NAME
 export SLACK_BRIDGE_SERVICE_NAME
-SLACK_BRIDGE_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$SLACK_SECRET_GROUP $$SLACK_BRIDGE_SERVICE_NAME $$SLACK_BRIDGE_HOST $$SLACK_BRIDGE_APP_NAME $$SLACK_BRIDGE_HARNESS_NAME $$SLACK_BRIDGE_HARNESS_API_URL $$SLACK_BRIDGE_TARGET_SECRET_GROUP $$SLACK_BRIDGE_TARGET_TOKEN_KEY $$SLACK_BRIDGE_AUTH_HEADER $$SLACK_BRIDGE_AUTH_SCHEME $$SLACK_BRIDGE_BODY_PROFILE $$SLACK_BRIDGE_SEND_INITIAL_MESSAGE_AFTER_CREATE $$SLACK_BRIDGE_WORKING_DIR $$SLACK_BRIDGE_SESSION_CREATE_PATH $$SLACK_BRIDGE_SESSION_MESSAGE_PATH_TEMPLATE $$SLACK_BRIDGE_SESSION_EVENTS_PATH_TEMPLATE $$SLACK_BRIDGE_POLL_EVENTS $$SLACK_BRIDGE_IGNORE_EVENT_TIMEOUTS'
+SLACK_BRIDGE_ENVSUBST_VARS := '$$TFY_WORKSPACE_FQN $$HARNESS_DEPLOY_ROOT $$TFY_SECRET_TENANT $$SLACK_SECRET_GROUP $$SLACK_SESSION_SCOPE $$SLACK_BRIDGE_SERVICE_NAME $$SLACK_BRIDGE_HOST $$SLACK_BRIDGE_APP_NAME $$SLACK_BRIDGE_HARNESS_NAME $$SLACK_BRIDGE_HARNESS_API_URL $$SLACK_BRIDGE_TARGET_SECRET_GROUP $$SLACK_BRIDGE_TARGET_TOKEN_KEY $$SLACK_BRIDGE_AUTH_HEADER $$SLACK_BRIDGE_AUTH_SCHEME $$SLACK_BRIDGE_BODY_PROFILE $$SLACK_BRIDGE_SEND_INITIAL_MESSAGE_AFTER_CREATE $$SLACK_BRIDGE_WORKING_DIR $$SLACK_BRIDGE_SESSION_CREATE_PATH $$SLACK_BRIDGE_SESSION_MESSAGE_PATH_TEMPLATE $$SLACK_BRIDGE_SESSION_EVENTS_PATH_TEMPLATE $$SLACK_BRIDGE_OPENAI_CHAT_PATH $$SLACK_BRIDGE_OPENAI_MAX_HISTORY_MESSAGES $$SLACK_BRIDGE_OPENAI_TEMPERATURE $$SLACK_BRIDGE_OPENAI_SEND_USER $$SLACK_BRIDGE_OPENAI_SEND_SESSION_KEY $$SLACK_BRIDGE_OPENAI_INJECT_SLACK_IDENTITY_GUARD $$SLACK_BRIDGE_POLL_EVENTS $$SLACK_BRIDGE_IGNORE_EVENT_TIMEOUTS'
 
 clean-rendered:
 	rm -rf .rendered
@@ -140,6 +150,19 @@ deploy-hermes-agent: render-hermes-agent
 	@test -n "$(TFY)" || (echo "tfy not found. Install TrueFoundry CLI or add tfy to PATH." && exit 1)
 	$(TFY) apply -f .rendered/hermes-agent/volume.yaml
 	$(TFY) deploy -f .rendered/hermes-agent/api-service.yaml --no-wait --force
+
+render-hermes-agent-slack:
+	@test -n "$(ENVSUBST)" || (echo "envsubst not found. Install gettext or add envsubst to PATH." && exit 1)
+	@test -n "$(HERMES_SLACK_HOST)" || (echo "HERMES_SLACK_HOST is required. Set it in .env." && exit 1)
+	mkdir -p .rendered/hermes-agent
+	HARNESS_API_URL="https://$(HERMES_SLACK_HOST)" \
+	SLACK_BRIDGE_APP_NAME="$(HERMES_SLACK_APP_NAME)" \
+	SLACK_BRIDGE_HARNESS_NAME="hermes" \
+	$(ENVSUBST) '$$SLACK_BRIDGE_APP_NAME $$SLACK_BRIDGE_HARNESS_NAME $$HARNESS_API_URL' < shared/slack/slack-app-manifest.template.json > .rendered/hermes-agent/slack-app-manifest.json
+
+create-hermes-agent-slack-app: render-hermes-agent-slack
+	@test -n "$$SLACK_APP_CONFIG_TOKEN" || (echo "SLACK_APP_CONFIG_TOKEN is required. Generate a Slack app configuration token and set it in root .env or the shell." && exit 1)
+	$(PYTHON) scripts/create_slack_app.py .rendered/hermes-agent/slack-app-manifest.json --token "$$SLACK_APP_CONFIG_TOKEN" $${SLACK_TEAM_ID:+--team-id "$$SLACK_TEAM_ID"} --out .rendered/hermes-agent/slack-app-create-response.json
 
 smoke-hermes-agent:
 	@test -n "$(HERMES_API_TOKEN)" || (echo "HERMES_API_TOKEN is required. Use the CODEX-GATEWAY-BEARER-TOKEN value." && exit 1)

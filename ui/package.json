@@ -1,0 +1,32 @@
+{
+  "name": "harness-deploy-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "server": "tsx server/index.ts",
+    "build": "tsc && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.19.6",
+    "better-sqlite3": "^12.5.0",
+    "dotenv": "^17.2.3",
+    "hono": "^4.10.8",
+    "lucide-react": "^0.555.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "playwright": "^1.60.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4"
+  }
+}

@@ -18,9 +18,9 @@ make deploy-claude-code
 Slack bridge:
 
 - `make render-claude-code-slack` renders the shared Slack HTTP bridge and a
-  Slack app manifest for Donna Assistant.
+  Slack app manifest for Claude Code Test.
 - The bridge exposes `POST /slack/events` for Slack HTTP Events API.
-- Donna maps one Slack thread to one Claude Code session, reacts to the user
+- Claude Code Test maps one Slack thread to one Claude Code session, reacts to the user
   message, and edits one threaded reply while polling session events.
 - Socket Mode is intentionally not used; do not configure `SLACK_APP_TOKEN`.
 

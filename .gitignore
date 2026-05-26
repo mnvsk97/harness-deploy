@@ -6,3 +6,7 @@
 tmp/
 node_modules/
 .gemini/
+.superdesign
+ui/node_modules/
+ui/dist/
+ui/data/

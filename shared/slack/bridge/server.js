@@ -21,11 +21,18 @@ const strictMention = boolEnv("SLACK_STRICT_MENTION", true);
 const allowedUsers = csvSet(process.env.SLACK_ALLOWED_USERS || "");
 const allowedChannels = csvSet(process.env.SLACK_ALLOWED_CHANNELS || "");
 const freeResponseChannels = csvSet(process.env.SLACK_FREE_RESPONSE_CHANNELS || "");
+const sessionScope = process.env.SLACK_SESSION_SCOPE || "thread-user";
 const createPath = process.env.HARNESS_SESSION_CREATE_PATH || "/sessions";
 const messagePathTemplate = process.env.HARNESS_SESSION_MESSAGE_PATH_TEMPLATE || "/sessions/{session_id}/messages";
 const eventsPathTemplate = process.env.HARNESS_SESSION_EVENTS_PATH_TEMPLATE || "/sessions/{session_id}/events";
 const statusPathTemplate = process.env.HARNESS_SESSION_STATUS_PATH_TEMPLATE
   || eventsPathTemplate.replace(/\/(?:events|messages)$/, "");
+const openAiChatPath = process.env.HARNESS_OPENAI_CHAT_PATH || "/v1/chat/completions";
+const openAiMaxHistoryMessages = Number(process.env.HARNESS_OPENAI_MAX_HISTORY_MESSAGES || 20);
+const openAiTemperature = Number(process.env.HARNESS_OPENAI_TEMPERATURE || 0);
+const openAiSendUser = boolEnv("HARNESS_OPENAI_SEND_USER", true);
+const openAiSendSessionKey = boolEnv("HARNESS_OPENAI_SEND_SESSION_KEY", true);
+const openAiInjectSlackIdentityGuard = boolEnv("HARNESS_OPENAI_INJECT_SLACK_IDENTITY_GUARD", true);
 const pollEvents = boolEnv("HARNESS_POLL_EVENTS", true);
 const pollIntervalMs = Number(process.env.HARNESS_POLL_INTERVAL_MS || 3000);
 const pollAttempts = Number(process.env.HARNESS_POLL_ATTEMPTS || 20);
@@ -229,11 +236,20 @@ function cleanSlackText(text) {
   return (text || "").replace(new RegExp(`<@${escapeRegex(botUserId)}(?:\\|[^>]+)?>`, "g"), "").trim();
 }
 
+function slackUserKey(slack = {}) {
+  const team = slack.team || slack.team_id || "unknown-team";
+  const user = slack.user || "unknown-user";
+  return `${team}:${user}`;
+}
+
 function sessionKey(event) {
   const team = event.team || event.team_id || "unknown-team";
   const channel = event.channel || "unknown-channel";
+  const user = event.user || "unknown-user";
   const root = event.thread_ts || event.ts || event.client_msg_id || "root";
-  return `${team}:${channel}:${root}`;
+  if (sessionScope === "thread") return `${team}:${channel}:${root}`;
+  if (sessionScope === "user") return `${team}:${channel}:${user}`;
+  return `${team}:${channel}:${root}:${user}`;
 }
 
 function stableSlackEventId(envelope) {
@@ -252,10 +268,10 @@ function templatePath(template, sessionId) {
   return template.replaceAll("{session_id}", encodeURIComponent(sessionId));
 }
 
-function authHeaders() {
+function authHeaders(extraHeaders = {}) {
   if (!harnessApiToken) return {};
   const value = harnessAuthScheme ? `${harnessAuthScheme} ${harnessApiToken}` : harnessApiToken;
-  return { [harnessAuthHeader]: value };
+  return { [harnessAuthHeader]: value, ...extraHeaders };
 }
 
 function slackContext(message, slack = {}) {
@@ -270,7 +286,7 @@ function gooseMessage(message) {
       role: "user",
       created: Math.floor(Date.now() / 1000),
       content: [{ type: "text", text: message }],
-      metadata: {},
+      metadata: { userVisible: true, agentVisible: true },
     },
   };
 }
@@ -285,6 +301,59 @@ function buildMessageBody(message, slack = {}) {
   if (harnessBodyProfile === "goose") return gooseMessage(message);
   if (harnessBodyProfile === "openswe-dashboard") return { content: message };
   return slackContext(message, slack);
+}
+
+function isOpenAiChatProfile() {
+  return harnessBodyProfile === "openai-chat";
+}
+
+function syntheticSessionId(key) {
+  return `openai-${crypto.createHash("sha256").update(key).digest("hex").slice(0, 16)}`;
+}
+
+function trimOpenAiMessages(messages) {
+  const limit = Number.isFinite(openAiMaxHistoryMessages) && openAiMaxHistoryMessages > 0
+    ? openAiMaxHistoryMessages
+    : 20;
+  return messages.slice(-limit);
+}
+
+function buildOpenAiChatBody(messages, slack = {}) {
+  const scopedMessages = openAiInjectSlackIdentityGuard
+    ? [slackIdentityGuardMessage(slack), ...trimOpenAiMessages(messages)]
+    : trimOpenAiMessages(messages);
+  const body = {
+    messages: scopedMessages,
+    temperature: Number.isFinite(openAiTemperature) ? openAiTemperature : 0,
+    stream: false,
+  };
+  if (openAiSendUser) body.user = slackUserKey(slack);
+  return body;
+}
+
+function slackIdentityGuardMessage(slack = {}) {
+  const userKey = slackUserKey(slack);
+  return {
+    role: "system",
+    content: [
+      "You are replying to a Slack user through the Hermes Slack bridge.",
+      `Current Slack user key: ${userKey}.`,
+      "Treat this Slack user key as the only valid identity namespace for personal facts.",
+      "Do not use personal facts, names, preferences, or memories from another Slack user or from a global/default profile.",
+      "If this Slack user's name is not explicitly present in this Slack conversation or in memory scoped to this exact Slack user key, say you do not know.",
+    ].join("\n"),
+  };
+}
+
+function extractOpenAiChatText(payload) {
+  const choice = Array.isArray(payload?.choices) ? payload.choices[0] : null;
+  const content = choice?.message?.content || choice?.delta?.content || payload?.output_text || payload?.text || "";
+  if (typeof content === "string" && content.trim()) return content.trim();
+  if (Array.isArray(content)) {
+    const text = content.map((item) => item.text || item.content || "").filter(Boolean).join("\n").trim();
+    if (text) return text;
+  }
+  throw new Error("OpenAI chat response did not include assistant text");
 }
 
 function parseSseEvents(text) {
@@ -310,13 +379,13 @@ function parseSseEvents(text) {
     .filter(Boolean);
 }
 
-async function harnessFetch(path, { method = "GET", body, timeoutMs = requestTimeoutMs } = {}) {
+async function harnessFetch(path, { method = "GET", body, timeoutMs = requestTimeoutMs, headers = {} } = {}) {
   const response = await fetch(`${harnessApiUrl}${path}`, {
     method,
     signal: AbortSignal.timeout(timeoutMs),
     headers: {
       "content-type": "application/json",
-      ...authHeaders(),
+      ...authHeaders(headers),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -581,6 +650,7 @@ async function handleSlackMessage(envelope) {
     const existingRecord = sessions.get(key);
     const record = normalizedSessionRecord(existingRecord, {
       channel,
+      user: event.user,
       slackThread,
       originalMessageTs: event.ts,
       botMessageTs: null,
@@ -589,6 +659,7 @@ async function handleSlackMessage(envelope) {
       deliveredEventIds: [],
     });
     record.channel = record.channel || channel;
+    record.user = record.user || event.user;
     record.slackThread = record.slackThread || slackThread;
     if (record.originalMessageTs !== event.ts) {
       record.originalMessageTs = event.ts;
@@ -598,6 +669,37 @@ async function handleSlackMessage(envelope) {
     }
 
     await markRunning(record, event.ts);
+
+    if (isOpenAiChatProfile()) {
+      record.botMessageTs = null;
+      record.lastRenderText = "";
+      record.lastUpdateAt = 0;
+      record.sessionId = record.sessionId || syntheticSessionId(key);
+      record.messages = Array.isArray(record.messages) ? record.messages : [];
+      record.messages.push({ role: "user", content: message });
+      record.messages = trimOpenAiMessages(record.messages);
+      metrics.lastSessionId = record.sessionId;
+      sessions.set(key, record);
+      persistState();
+
+      const payload = await harnessFetch(openAiChatPath, {
+        method: "POST",
+        body: buildOpenAiChatBody(record.messages, { channel, user: event.user, thread_ts: slackThread, team: envelope.team_id }),
+        headers: openAiSendSessionKey ? { "X-Hermes-Session-Key": slackUserKey({ user: event.user, team: envelope.team_id }) } : {},
+      });
+      const reply = extractOpenAiChatText(payload);
+      record.messages.push({ role: "assistant", content: reply });
+      record.messages = trimOpenAiMessages(record.messages);
+      delete record.activeRun;
+      sessions.set(key, record);
+      metrics.processedSlackEvents += 1;
+      metrics.lastSlackEventAt = new Date().toISOString();
+      persistState();
+      await updateBotMessage(record, reply, { force: true });
+      await markComplete(record, event.ts, false);
+      return;
+    }
+
     if (!record.botMessageTs) {
       const created = await post(channel, existingRecord ? `Sending to ${harnessName}...` : `Starting ${harnessName} session...`, slackThread);
       record.botMessageTs = created.ts || null;
