@@ -37,7 +37,7 @@ env:
   HARNESS_BODY_PROFILE: openswe-dashboard
   HARNESS_SESSION_CREATE_PATH: /dashboard/api/threads
   HARNESS_SESSION_MESSAGE_PATH_TEMPLATE: /dashboard/api/threads/{session_id}/messages
-  HARNESS_SESSION_EVENTS_PATH_TEMPLATE: /dashboard/api/threads/{session_id}/stream
+  HARNESS_SESSION_EVENTS_PATH_TEMPLATE: /dashboard/api/threads/{session_id}
   HARNESS_POLL_EVENTS: "true"
   HARNESS_POLL_INTERVAL_MS: "2500"
   HARNESS_POLL_ATTEMPTS: "40"

@@ -362,6 +362,7 @@ function extractEvents(payload) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload.events)) return payload.events;
   if (Array.isArray(payload.data)) return payload.data;
+  if (Array.isArray(payload.messages)) return payload.messages;
   return [];
 }
 
@@ -374,6 +375,14 @@ function isTimeoutError(error) {
 function eventText(event) {
   const type = event.type || event.event?.method || "";
   if (event.message?.role && event.message.role !== "assistant") return "";
+  if (event.author && event.author !== "agent" && event.author !== "assistant") return "";
+  if (Array.isArray(event.chunks)) {
+    return event.chunks
+      .map((item) => item.text || item.output || item.content || "")
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
   if (Array.isArray(event.message?.content)) {
     return event.message.content.map((item) => item.text || item.content || "").filter(Boolean).join("\n").trim();
   }
@@ -393,8 +402,18 @@ function eventTerminalStatus(event) {
   if (type === "run.completed") return "completed";
   if (type === "run.failed") return "failed";
   if (type === "run.cancelled") return "cancelled";
+  if (["finished", "success", "completed", "error", "failed", "cancelled"].includes(status)) return status;
   if (type === "harness.status" && ["idle", "waiting_for_input"].includes(status)) return status;
   if (type === "harness.status" && ["failed", "cancelled"].includes(status)) return status;
+  return "";
+}
+
+function statusMessage(status, sessionId) {
+  const prefix = sessionId ? `${harnessName} session ${sessionId}` : `${harnessName} session`;
+  if (["error", "failed"].includes(status)) return `${prefix} ended with status: ${status}.`;
+  if (status === "cancelled") return `${prefix} was cancelled.`;
+  if (["finished", "success", "completed", "idle", "waiting_for_input"].includes(status)) return `${prefix} is ready.`;
+  if (status === "running") return `${prefix} is running.`;
   return "";
 }
 
@@ -548,6 +567,7 @@ async function handleSlackMessage(envelope) {
       metrics.lastSessionId = sessionId;
       sessions.set(key, record);
       persistState();
+      await updateBotMessage(record, statusMessage("running", sessionId), { force: true });
       if (sendInitialMessageAfterCreate) {
         await harnessFetch(templatePath(messagePathTemplate, sessionId), {
           method: "POST",
@@ -631,9 +651,14 @@ async function pollAndPostEvents({ sessionId, record, userMessageTs }) {
       for (const text of newTexts) await updateBotMessage(record, text);
 
       const status = terminalStatus || payload?.session?.status || payload?.status || "";
-      if (["completed", "failed", "cancelled", "waiting_for_input", "idle"].includes(status)) {
-        if (newTexts.length) await updateBotMessage(record, newTexts[newTexts.length - 1], { force: true });
-        await markComplete(record, userMessageTs, ["failed", "cancelled"].includes(status));
+      if (status === "running" && !newTexts.length) await updateBotMessage(record, statusMessage(status, sessionId));
+      if (["completed", "finished", "success", "error", "failed", "cancelled", "waiting_for_input", "idle"].includes(status)) {
+        if (newTexts.length) {
+          await updateBotMessage(record, newTexts[newTexts.length - 1], { force: true });
+        } else {
+          await updateBotMessage(record, statusMessage(status, sessionId), { force: true });
+        }
+        await markComplete(record, userMessageTs, ["error", "failed", "cancelled"].includes(status));
         clearActiveRun(record, userMessageTs);
         return;
       }
