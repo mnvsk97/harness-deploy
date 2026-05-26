@@ -21,6 +21,11 @@ enabled separately when those credentials are intentionally configured.
 `OPENSWE_DASHBOARD_AUTH_DISABLED=1` keeps the dashboard API open for demo
 deployments. Turn this off before production use.
 
+Open SWE creates a new Daytona sandbox per new Open SWE thread. The demo
+deployment labels those sandboxes with `harness=openswe`, stops them after 5
+minutes, archives them after 15 minutes, and deletes them after 60 minutes so
+the Daytona disk quota does not fill up.
+
 Slack-created sessions need a fallback repository because the Open SWE dashboard
 normally reads that from a logged-in user's profile. Set `OPENSWE_DEFAULT_REPO`
 to an `owner/repo` value before deploying.

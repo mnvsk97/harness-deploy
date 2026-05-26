@@ -61,6 +61,34 @@ server_text = server_text.replace(
 )
 server_path.write_text(server_text)
 
+daytona_path = Path("agent/integrations/daytona.py")
+daytona_text = daytona_path.read_text()
+daytona_text = daytona_text.replace(
+    "def _get_daytona_sandbox_params() -> CreateSandboxFromSnapshotParams:\n"
+    "    snapshot = os.getenv(DAYTONA_SANDBOX_SNAPSHOT_ENV, DEFAULT_DAYTONA_SANDBOX_SNAPSHOT).strip()\n"
+    "    if not snapshot:\n"
+    "        raise ValueError(f\"{DAYTONA_SANDBOX_SNAPSHOT_ENV} must not be empty\")\n"
+    "    return CreateSandboxFromSnapshotParams(snapshot=snapshot)\n",
+    "def _int_env(name: str, default: int) -> int:\n"
+    "    raw = os.getenv(name, str(default)).strip()\n"
+    "    try:\n"
+    "        return int(raw)\n"
+    "    except ValueError as exc:\n"
+    "        raise ValueError(f\"{name} must be an integer\") from exc\n\n"
+    "def _get_daytona_sandbox_params() -> CreateSandboxFromSnapshotParams:\n"
+    "    snapshot = os.getenv(DAYTONA_SANDBOX_SNAPSHOT_ENV, DEFAULT_DAYTONA_SANDBOX_SNAPSHOT).strip()\n"
+    "    if not snapshot:\n"
+    "        raise ValueError(f\"{DAYTONA_SANDBOX_SNAPSHOT_ENV} must not be empty\")\n"
+    "    return CreateSandboxFromSnapshotParams(\n"
+    "        snapshot=snapshot,\n"
+    "        labels={\"managed-by\": \"harness-deploy\", \"harness\": \"openswe\"},\n"
+    "        auto_stop_interval=_int_env(\"OPENSWE_DAYTONA_AUTO_STOP_INTERVAL\", 5),\n"
+    "        auto_archive_interval=_int_env(\"OPENSWE_DAYTONA_AUTO_ARCHIVE_INTERVAL\", 15),\n"
+    "        auto_delete_interval=_int_env(\"OPENSWE_DAYTONA_AUTO_DELETE_INTERVAL\", 60),\n"
+    "    )\n",
+)
+daytona_path.write_text(daytona_text)
+
 oauth_path = Path("agent/dashboard/oauth.py")
 oauth_text = oauth_path.read_text()
 oauth_text = oauth_text.replace(
