@@ -31,6 +31,8 @@ const pollIntervalMs = Number(process.env.HARNESS_POLL_INTERVAL_MS || 3000);
 const pollAttempts = Number(process.env.HARNESS_POLL_ATTEMPTS || 20);
 const requestTimeoutMs = Number(process.env.HARNESS_REQUEST_TIMEOUT_MS || 300000);
 const eventPollTimeoutMs = Number(process.env.HARNESS_EVENT_POLL_TIMEOUT_MS || 10000);
+const terminalTextWaitAttempts = Number(process.env.HARNESS_TERMINAL_TEXT_WAIT_ATTEMPTS || 8);
+const terminalTextWaitIntervalMs = Number(process.env.HARNESS_TERMINAL_TEXT_WAIT_INTERVAL_MS || 3000);
 const ignoreEventTimeouts = boolEnv("HARNESS_IGNORE_EVENT_TIMEOUTS", false);
 const stateDir = process.env.SLACK_BRIDGE_STATE_DIR || "/data/slack-bridge";
 const statePath = join(stateDir, "state.json");
@@ -60,6 +62,7 @@ const metrics = {
   lastUpdateAt: null,
   resumedActiveRuns: 0,
 };
+const terminalStatuses = new Set(["completed", "finished", "success", "error", "failed", "cancelled", "waiting_for_input", "idle"]);
 
 mkdirSync(stateDir, { recursive: true });
 loadState();
@@ -445,6 +448,24 @@ function latestAssistantTextAfter(events, sinceMs) {
   return latest;
 }
 
+async function waitForTerminalAssistantText(sessionId, record) {
+  let status = "";
+  for (let attempt = 0; attempt < terminalTextWaitAttempts; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, terminalTextWaitIntervalMs));
+    try {
+      const payload = await harnessFetch(templatePath(eventsPathTemplate, sessionId), { timeoutMs: eventPollTimeoutMs });
+      const events = extractEvents(payload);
+      const latestText = latestAssistantTextAfter(events, record.lastUpdateAt || 0);
+      if (latestText) return { latestText, status: terminalStatusFromEvents(events) || payload?.session?.status || payload?.status || status };
+      status = terminalStatusFromEvents(events) || payload?.session?.status || payload?.status || status;
+    } catch (error) {
+      lastError = error.message;
+      if (!(ignoreEventTimeouts && isTimeoutError(error))) break;
+    }
+  }
+  return { latestText: "", status };
+}
+
 function terminalStatusFromEvents(events) {
   let status = "";
   for (const event of events) status = eventTerminalStatus(event) || status;
@@ -686,11 +707,16 @@ async function pollAndPostEvents({ sessionId, record, userMessageTs }) {
 
       const status = terminalStatus || payload?.session?.status || payload?.status || "";
       if (status === "running" && !newTexts.length) await updateBotMessage(record, statusMessage(status, sessionId));
-      if (["completed", "finished", "success", "error", "failed", "cancelled", "waiting_for_input", "idle"].includes(status)) {
+      if (terminalStatuses.has(status)) {
         if (newTexts.length) {
           await updateBotMessage(record, newTexts[newTexts.length - 1], { force: true });
         } else {
-          await updateBotMessage(record, statusMessage(status, sessionId), { force: true });
+          const final = await waitForTerminalAssistantText(sessionId, record);
+          if (final.latestText) {
+            await updateBotMessage(record, final.latestText, { force: true });
+          } else {
+            await updateBotMessage(record, statusMessage(final.status || status, sessionId), { force: true });
+          }
         }
         await markComplete(record, userMessageTs, ["error", "failed", "cancelled"].includes(status));
         clearActiveRun(record, userMessageTs);
@@ -728,8 +754,19 @@ async function handlePollExhausted({ sessionId, record, userMessageTs }) {
     lastError = error.message;
   }
 
+  if (terminalStatuses.has(status)) {
+    const final = await waitForTerminalAssistantText(sessionId, record);
+    if (final.latestText) {
+      await updateBotMessage(record, final.latestText, { force: true });
+      await markComplete(record, userMessageTs, ["error", "failed", "cancelled"].includes(final.status || status));
+      clearActiveRun(record, userMessageTs);
+      return;
+    }
+    status = final.status || status;
+  }
+
   const failed = ["error", "failed", "cancelled"].includes(status);
-  const terminal = ["completed", "finished", "success", "error", "failed", "cancelled", "waiting_for_input", "idle"].includes(status);
+  const terminal = terminalStatuses.has(status);
   const text = terminal
     ? statusMessage(status, sessionId)
     : `${harnessName} has not produced a response yet for session ${sessionId}.`;
