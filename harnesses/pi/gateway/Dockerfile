@@ -14,7 +14,9 @@ RUN git clone "${STEPPABLE_PI_REPO}" /opt/steppable-pi && \
     npm run build
 
 WORKDIR /app
-COPY package.json server.js ./
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+COPY server.js ./
 
 ENV NODE_ENV=production
 ENV PORT=3001

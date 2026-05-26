@@ -2,7 +2,7 @@ import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, posix as posixPath } from "node:path";
 
 const port = Number(process.env.PORT || 3001);
 const piHome = process.env.PI_HOME || "/data/pi";
@@ -15,8 +15,25 @@ const aiModulePath = process.env.PI_AI_MODULE || "/opt/steppable-pi/packages/ai/
 const defaultProvider = process.env.PI_PROVIDER || "tfy-gateway";
 const defaultModel = process.env.PI_MODEL || "openai-main/gpt-5.5";
 const defaultThinking = process.env.PI_THINKING || "off";
+const sandboxProvider = (process.env.PI_SANDBOX_PROVIDER || "local").toLowerCase();
+const daytonaWorkdir = process.env.PI_DAYTONA_WORKDIR || "/workspace";
+const daytonaApiKey = process.env.DAYTONA_API_KEY || "";
+const daytonaApiUrl = process.env.DAYTONA_API_URL || "";
+const daytonaTarget = process.env.DAYTONA_TARGET || "";
+const daytonaImageName = process.env.PI_DAYTONA_IMAGE || "node:22-bookworm";
 const gatewayToken = process.env.GATEWAY_BEARER_TOKEN || "";
 const modelApiKey = process.env.PI_MODEL_API_KEY || process.env.TFY_GATEWAY_API_KEY || process.env.OPENAI_API_KEY || "";
+
+function numberEnv(name, fallback) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+const daytonaAutoStopInterval = numberEnv("PI_DAYTONA_AUTO_STOP_INTERVAL", 15);
+const daytonaAutoArchiveInterval = numberEnv("PI_DAYTONA_AUTO_ARCHIVE_INTERVAL", 60);
+const daytonaAutoDeleteInterval = numberEnv("PI_DAYTONA_AUTO_DELETE_INTERVAL", 1440);
 
 for (const dir of [piHome, agentDir, sessionDir, workspaceRoot, gatewayStateDir]) {
   mkdirSync(dir, { recursive: true });
@@ -28,6 +45,23 @@ async function streamSimple() {
     streamSimplePromise = import(aiModulePath).then((module) => module.streamSimple);
   }
   return streamSimplePromise;
+}
+
+let daytonaClientPromise;
+async function daytonaClient() {
+  if (!daytonaApiKey) throw new Error("DAYTONA_API_KEY is required when PI_SANDBOX_PROVIDER=daytona");
+  if (!daytonaClientPromise) {
+    daytonaClientPromise = import("@daytona/sdk").then(({ Daytona }) => {
+      const config = {
+        apiKey: daytonaApiKey,
+        otelEnabled: false,
+      };
+      if (daytonaApiUrl) config.apiUrl = daytonaApiUrl;
+      if (daytonaTarget) config.target = daytonaTarget;
+      return new Daytona(config);
+    });
+  }
+  return daytonaClientPromise;
 }
 
 function writeModelConfig() {
@@ -92,6 +126,15 @@ function publicSession(session) {
     thinking: session.thinking,
     workspace_dir: session.workspace_dir,
     state_dir: session.state_dir,
+    sandbox_provider: sandboxProvider,
+    sandbox: session.sandbox
+      ? {
+          provider: session.sandbox.provider,
+          id: session.sandbox.id,
+          name: session.sandbox.name,
+          workdir: session.sandbox.workdir,
+        }
+      : null,
     live: Boolean(session.child),
     next_action: session.next_action?.type || null,
     error: session.error || null,
@@ -124,6 +167,7 @@ function loadPersistedSessions() {
         workspace_dir: data.workspace_dir,
         state_dir: data.state_dir,
         snapshot: data.snapshot || null,
+        sandbox: data.sandbox || null,
         events: data.events || [],
         next_action: null,
         child: null,
@@ -276,6 +320,220 @@ function serializeError(error) {
   };
 }
 
+function textResult(text) {
+  return { content: [{ type: "text", text: text || "" }] };
+}
+
+function jsonLiteral(value) {
+  return JSON.stringify(value ?? "");
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\\''")}'`;
+}
+
+function resolveSandboxPath(session, inputPath) {
+  const rawPath = String(inputPath || ".");
+  if (rawPath === "." || rawPath === "") return session.sandbox?.workdir || daytonaWorkdir;
+  if (rawPath.startsWith(session.workspace_dir)) {
+    const relative = rawPath.slice(session.workspace_dir.length).replace(/^\/+/, "");
+    return posixPath.join(session.sandbox?.workdir || daytonaWorkdir, relative);
+  }
+  if (rawPath.startsWith(daytonaWorkdir)) return rawPath;
+  if (rawPath.startsWith("/")) return rawPath;
+  return posixPath.join(session.sandbox?.workdir || daytonaWorkdir, rawPath);
+}
+
+async function ensureDaytonaSandbox(session) {
+  const client = await daytonaClient();
+  if (session.sandbox?.provider === "daytona" && session.sandbox.id) {
+    try {
+      const existing = await client.get(session.sandbox.id);
+      await existing.process.executeCommand(`mkdir -p ${shellQuote(session.sandbox.workdir || daytonaWorkdir)}`);
+      return existing;
+    } catch (error) {
+      appendEvent(session, "sandbox.recreate", { provider: "daytona", previous_id: session.sandbox.id, error: serializeError(error) });
+      session.sandbox = null;
+      persistSession(session);
+    }
+  }
+
+  const suffix = session.id.replace(/^sess_/, "").slice(0, 12).replace(/[^a-zA-Z0-9-]/g, "");
+  const name = `pi-${suffix || randomUUID().slice(0, 8)}`;
+  const { Image } = await import("@daytona/sdk");
+  const image = Image.base(daytonaImageName).dockerfileCommands([
+    "RUN apt-get update && apt-get install -y --no-install-recommends zsh python3 git ripgrep findutils grep sed coreutils && rm -rf /var/lib/apt/lists/*",
+    `WORKDIR ${daytonaWorkdir}`,
+  ]);
+  const sandbox = await client.create(
+    {
+      name,
+      image,
+      autoStopInterval: daytonaAutoStopInterval,
+      autoArchiveInterval: daytonaAutoArchiveInterval,
+      autoDeleteInterval: daytonaAutoDeleteInterval,
+      labels: {
+        app: "pi-steppable-gateway",
+        session_id: session.id,
+        harness: "pi",
+      },
+    },
+    { timeout: numberEnv("PI_DAYTONA_CREATE_TIMEOUT", 120) },
+  );
+  session.sandbox = { provider: "daytona", id: sandbox.id, name: sandbox.name || name, workdir: daytonaWorkdir };
+  appendEvent(session, "sandbox.started", session.sandbox);
+  persistSession(session);
+  await sandbox.process.executeCommand(`mkdir -p ${shellQuote(daytonaWorkdir)}`);
+  return sandbox;
+}
+
+async function executeDaytonaCommand(session, command, options = {}) {
+  const sandbox = await ensureDaytonaSandbox(session);
+  const timeout = options.timeout || numberEnv("PI_DAYTONA_COMMAND_TIMEOUT", 120);
+  const response = await sandbox.process.executeCommand(command, options.cwd || session.sandbox.workdir, {}, timeout);
+  const text = response.result || "";
+  const exitCode = Number(response.exitCode || 0);
+  if (exitCode !== 0) {
+    return { result: textResult(`${text}${text ? "\n\n" : ""}Command exited with code ${exitCode}`), isError: true };
+  }
+  return { result: textResult(text || "(no output)"), isError: false };
+}
+
+async function executeDaytonaTool(session, action) {
+  appendEvent(session, "sandbox.tool_start", {
+    provider: "daytona",
+    call_id: action.callId,
+    tool_call_id: action.toolCallId,
+    tool: action.tool,
+  });
+
+  const input = action.input || {};
+  let output;
+  switch (action.tool) {
+    case "bash": {
+      output = await executeDaytonaCommand(session, String(input.command || ""), { timeout: input.timeout });
+      break;
+    }
+    case "write": {
+      const path = resolveSandboxPath(session, input.path);
+      const content = Buffer.from(String(input.content || ""), "utf8").toString("base64");
+      output = await executeDaytonaCommand(
+        session,
+        [
+          "python3 - <<'PY'",
+          "import base64, pathlib",
+          `path = pathlib.Path(${jsonLiteral(path)})`,
+          `data = base64.b64decode(${jsonLiteral(content)})`,
+          "path.parent.mkdir(parents=True, exist_ok=True)",
+          "path.write_bytes(data)",
+          `print(f"Successfully wrote {len(data)} bytes to ${String(input.path || path).replaceAll('"', '\\"')}")`,
+          "PY",
+        ].join("\n"),
+      );
+      break;
+    }
+    case "read": {
+      const path = resolveSandboxPath(session, input.path);
+      const offset = Number(input.offset || 1);
+      const limit = input.limit === undefined ? null : Number(input.limit);
+      output = await executeDaytonaCommand(
+        session,
+        [
+          "python3 - <<'PY'",
+          "import pathlib",
+          `path = pathlib.Path(${jsonLiteral(path)})`,
+          `offset = max(1, int(${jsonLiteral(offset)}))`,
+          `limit_raw = ${limit === null ? "None" : jsonLiteral(limit)}`,
+          "text = path.read_text()",
+          "lines = text.splitlines()",
+          "start = offset - 1",
+          "selected = lines[start:] if limit_raw is None else lines[start:start + int(limit_raw)]",
+          "print('\\n'.join(selected))",
+          "PY",
+        ].join("\n"),
+      );
+      break;
+    }
+    case "edit": {
+      const path = resolveSandboxPath(session, input.path);
+      const edits = Buffer.from(JSON.stringify(input.edits || []), "utf8").toString("base64");
+      output = await executeDaytonaCommand(
+        session,
+        [
+          "python3 - <<'PY'",
+          "import base64, json, pathlib, sys",
+          `path = pathlib.Path(${jsonLiteral(path)})`,
+          `edits = json.loads(base64.b64decode(${jsonLiteral(edits)}).decode())`,
+          "text = path.read_text()",
+          "for edit in edits:",
+          "    old = edit.get('oldText', '')",
+          "    new = edit.get('newText', '')",
+          "    count = text.count(old)",
+          "    if not old or count != 1:",
+          "        raise SystemExit(f'Could not apply edit: oldText matched {count} times')",
+          "    text = text.replace(old, new, 1)",
+          "path.write_text(text)",
+          "print(f'Successfully replaced {len(edits)} block(s) in ' + path.name)",
+          "PY",
+        ].join("\n"),
+      );
+      break;
+    }
+    case "ls": {
+      const path = resolveSandboxPath(session, input.path || ".");
+      const limit = Number(input.limit || 500);
+      output = await executeDaytonaCommand(
+        session,
+        [
+          "python3 - <<'PY'",
+          "import pathlib",
+          `path = pathlib.Path(${jsonLiteral(path)})`,
+          `limit = int(${jsonLiteral(limit)})`,
+          "entries = []",
+          "for child in sorted(path.iterdir(), key=lambda p: p.name.lower()):",
+          "    entries.append(child.name + ('/' if child.is_dir() else ''))",
+          "    if len(entries) >= limit: break",
+          "print('\\n'.join(entries) if entries else '(empty directory)')",
+          "PY",
+        ].join("\n"),
+      );
+      break;
+    }
+    case "grep": {
+      const path = resolveSandboxPath(session, input.path || ".");
+      const pattern = String(input.pattern || "");
+      const flags = input.ignoreCase ? "-RIni" : "-RIn";
+      const command = `grep ${flags} -- ${shellQuote(pattern)} ${shellQuote(path)} | head -n ${Number(input.limit || 100)}`;
+      output = await executeDaytonaCommand(session, command);
+      if (output.isError && output.result.content[0].text.endsWith("Command exited with code 1")) {
+        output = { result: textResult("No matches found"), isError: false };
+      }
+      break;
+    }
+    case "find": {
+      const path = resolveSandboxPath(session, input.path || ".");
+      const pattern = String(input.pattern || "*");
+      const command = `find ${shellQuote(path)} -name ${shellQuote(pattern)} -print | sed "s#^${path.replaceAll("#", "\\#")}/##" | head -n ${Number(input.limit || 1000)}`;
+      output = await executeDaytonaCommand(session, command);
+      break;
+    }
+    default:
+      output = {
+        result: textResult(`Tool ${action.tool} is not implemented by the Daytona adapter`),
+        isError: true,
+      };
+  }
+
+  appendEvent(session, "sandbox.tool_end", {
+    provider: "daytona",
+    call_id: action.callId,
+    tool_call_id: action.toolCallId,
+    tool: action.tool,
+    is_error: output.isError,
+  });
+  return output;
+}
+
 function mapPiEventType(type) {
   if (type === "agent_start") return "harness.started";
   if (type === "agent_end") return "run.completed";
@@ -335,7 +593,10 @@ async function driveUntilWaiting(session, firstInput) {
 
     if (action.type === "call_tool") {
       try {
-        const tool = await runtimeCommand(session, { type: "execute_tool", callId: action.callId });
+        const tool =
+          sandboxProvider === "daytona" && action.execution === "sandbox"
+            ? await executeDaytonaTool(session, action)
+            : await runtimeCommand(session, { type: "execute_tool", callId: action.callId });
         result = await runtimeCommand(session, {
           type: "advance",
           input: { type: "tool_result", callId: action.callId, result: tool.result, isError: tool.isError },
@@ -379,6 +640,7 @@ async function createSession(body) {
     workspace_dir: join(root, "workspace"),
     state_dir: join(root, "state"),
     snapshot: null,
+    sandbox: null,
     next_action: null,
     events: [],
     child: null,
