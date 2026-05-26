@@ -60,6 +60,51 @@ server_text = server_text.replace(
     "        del github_token\n",
 )
 server_path.write_text(server_text)
+
+oauth_path = Path("agent/dashboard/oauth.py")
+oauth_text = oauth_path.read_text()
+oauth_text = oauth_text.replace(
+    "def require_session(request: Request) -> dict[str, Any]:\n"
+    "    token = request.cookies.get(COOKIE_NAME)\n"
+    "    if not token:\n"
+    "        raise HTTPException(401, \"not authenticated\")\n"
+    "    return decode_session(token)\n",
+    "def require_session(request: Request) -> dict[str, Any]:\n"
+    "    service_token = os.environ.get(\"OPENSWE_DASHBOARD_AUTH_TOKEN\", \"\")\n"
+    "    auth_header = request.headers.get(\"authorization\", \"\")\n"
+    "    if service_token and auth_header == f\"Bearer {service_token}\":\n"
+    "        return {\n"
+    "            \"sub\": os.environ.get(\"OPENSWE_DASHBOARD_SERVICE_USER\", \"slack\"),\n"
+    "            \"email\": os.environ.get(\"OPENSWE_DASHBOARD_SERVICE_EMAIL\", \"slack@truefoundry.local\"),\n"
+    "            \"avatar_url\": None,\n"
+    "        }\n"
+    "    token = request.cookies.get(COOKIE_NAME)\n"
+    "    if not token:\n"
+    "        raise HTTPException(401, \"not authenticated\")\n"
+    "    return decode_session(token)\n",
+)
+oauth_path.write_text(oauth_text)
+
+thread_api_path = Path("agent/dashboard/thread_api.py")
+thread_api_text = thread_api_path.read_text()
+thread_api_text = thread_api_text.replace(
+    "async def _persist_dashboard_github_token(thread_id: str, login: str) -> None:\n"
+    "    token = await get_valid_access_token(login)\n",
+    "async def _persist_dashboard_github_token(thread_id: str, login: str) -> None:\n"
+    "    if os.environ.get(\"OPENSWE_DISABLE_REPO_AUTH\", \"1\") == \"1\":\n"
+    "        return\n"
+    "    token = await get_valid_access_token(login)\n",
+)
+thread_api_text = thread_api_text.replace(
+    "    if profile_repo:\n"
+    "        return profile_repo\n",
+    "    if profile_repo:\n"
+    "        return profile_repo\n"
+    "    env_repo = _parse_repo(os.environ.get(\"OPENSWE_DEFAULT_REPO\"))\n"
+    "    if env_repo:\n"
+    "        return env_repo\n",
+)
+thread_api_path.write_text(thread_api_text)
 PY
 
 exec /root/.local/bin/uv run langgraph dev --host 0.0.0.0 --port 2024 --no-browser

@@ -18,6 +18,10 @@ live in `OPENSWE_SECRET_GROUP`.
 without repo provider credentials. Repo clone, push, and PR workflows should be
 enabled separately when those credentials are intentionally configured.
 
+Slack-created sessions need a fallback repository because the Open SWE dashboard
+normally reads that from a logged-in user's profile. Set `OPENSWE_DEFAULT_REPO`
+to an `owner/repo` value before deploying.
+
 ## Deploy
 
 Render this template with:
