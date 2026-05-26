@@ -24,6 +24,8 @@ const freeResponseChannels = csvSet(process.env.SLACK_FREE_RESPONSE_CHANNELS || 
 const createPath = process.env.HARNESS_SESSION_CREATE_PATH || "/sessions";
 const messagePathTemplate = process.env.HARNESS_SESSION_MESSAGE_PATH_TEMPLATE || "/sessions/{session_id}/messages";
 const eventsPathTemplate = process.env.HARNESS_SESSION_EVENTS_PATH_TEMPLATE || "/sessions/{session_id}/events";
+const statusPathTemplate = process.env.HARNESS_SESSION_STATUS_PATH_TEMPLATE
+  || eventsPathTemplate.replace(/\/(?:events|messages)$/, "");
 const pollEvents = boolEnv("HARNESS_POLL_EVENTS", true);
 const pollIntervalMs = Number(process.env.HARNESS_POLL_INTERVAL_MS || 3000);
 const pollAttempts = Number(process.env.HARNESS_POLL_ATTEMPTS || 20);
@@ -417,6 +419,32 @@ function statusMessage(status, sessionId) {
   return "";
 }
 
+function isPendingRender(text) {
+  return /^(Starting|Sending to)\b| is running\.$|has not produced a response yet/i.test(String(text || "").trim());
+}
+
+function eventCreatedAtMs(event) {
+  const value = Date.parse(event.created_at || event.createdAt || event.at || "");
+  return Number.isFinite(value) ? value : 0;
+}
+
+function latestAssistantTextAfter(events, sinceMs) {
+  let latest = "";
+  for (const event of events) {
+    const createdAt = eventCreatedAtMs(event);
+    if (sinceMs && createdAt && createdAt < sinceMs - 1000) continue;
+    const text = eventText(event);
+    if (text) latest = text;
+  }
+  return latest;
+}
+
+function terminalStatusFromEvents(events) {
+  let status = "";
+  for (const event of events) status = eventTerminalStatus(event) || status;
+  return status;
+}
+
 async function post(channel, text, thread) {
   return slack.chat.postMessage({
     channel,
@@ -663,9 +691,46 @@ async function pollAndPostEvents({ sessionId, record, userMessageTs }) {
         return;
       }
     }
+
+    await handlePollExhausted({ sessionId, record, userMessageTs });
   } finally {
     activePolls.delete(pollKey);
   }
+}
+
+async function handlePollExhausted({ sessionId, record, userMessageTs }) {
+  let events = [];
+  let status = "";
+  try {
+    const payload = await harnessFetch(templatePath(statusPathTemplate, sessionId), { timeoutMs: eventPollTimeoutMs });
+    status = payload?.session?.status || payload?.status || "";
+  } catch (error) {
+    lastError = error.message;
+  }
+  try {
+    const payload = await harnessFetch(templatePath(eventsPathTemplate, sessionId), { timeoutMs: eventPollTimeoutMs });
+    events = extractEvents(payload);
+    const latestText = latestAssistantTextAfter(events, record.lastUpdateAt || 0);
+    if (latestText) {
+      await updateBotMessage(record, latestText, { force: true });
+      await markComplete(record, userMessageTs, false);
+      clearActiveRun(record, userMessageTs);
+      return;
+    }
+    status = terminalStatusFromEvents(events) || status;
+  } catch (error) {
+    lastError = error.message;
+  }
+
+  const failed = ["error", "failed", "cancelled"].includes(status);
+  const terminal = ["completed", "finished", "success", "error", "failed", "cancelled", "waiting_for_input", "idle"].includes(status);
+  const text = terminal
+    ? statusMessage(status, sessionId)
+    : `${harnessName} has not produced a response yet for session ${sessionId}.`;
+
+  await updateBotMessage(record, text, { force: true });
+  if (terminal) await markComplete(record, userMessageTs, failed);
+  clearActiveRun(record, userMessageTs);
 }
 
 function clearActiveRun(record, userMessageTs) {
@@ -684,6 +749,21 @@ function resumeActiveRuns() {
       sessionId: record.activeRun.sessionId,
       record,
       userMessageTs: record.activeRun.userMessageTs,
+    });
+  }
+  recoverPendingSessions();
+}
+
+function recoverPendingSessions() {
+  for (const record of sessions.values()) {
+    if (!record || typeof record !== "object" || record.activeRun) continue;
+    if (!record.sessionId || !record.channel || !record.slackThread || !record.botMessageTs) continue;
+    if (!isPendingRender(record.lastRenderText)) continue;
+    metrics.resumedActiveRuns += 1;
+    void handlePollExhausted({
+      sessionId: record.sessionId,
+      record,
+      userMessageTs: record.originalMessageTs,
     });
   }
 }
