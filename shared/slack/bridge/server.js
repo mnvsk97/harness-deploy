@@ -29,6 +29,7 @@ const pollIntervalMs = Number(process.env.HARNESS_POLL_INTERVAL_MS || 3000);
 const pollAttempts = Number(process.env.HARNESS_POLL_ATTEMPTS || 20);
 const requestTimeoutMs = Number(process.env.HARNESS_REQUEST_TIMEOUT_MS || 300000);
 const eventPollTimeoutMs = Number(process.env.HARNESS_EVENT_POLL_TIMEOUT_MS || 10000);
+const ignoreEventTimeouts = boolEnv("HARNESS_IGNORE_EVENT_TIMEOUTS", false);
 const stateDir = process.env.SLACK_BRIDGE_STATE_DIR || "/data/slack-bridge";
 const statePath = join(stateDir, "state.json");
 const updateThrottleMs = Number(process.env.SLACK_UPDATE_THROTTLE_MS || 1500);
@@ -364,6 +365,12 @@ function extractEvents(payload) {
   return [];
 }
 
+function isTimeoutError(error) {
+  const name = error?.name || "";
+  const message = error?.message || "";
+  return name === "AbortError" || name === "TimeoutError" || /timeout|aborted/i.test(message);
+}
+
 function eventText(event) {
   const type = event.type || event.event?.method || "";
   if (event.message?.role && event.message.role !== "assistant") return "";
@@ -597,6 +604,10 @@ async function pollAndPostEvents({ sessionId, record, userMessageTs }) {
       try {
         payload = await harnessFetch(templatePath(eventsPathTemplate, sessionId), { timeoutMs: eventPollTimeoutMs });
       } catch (error) {
+        if (ignoreEventTimeouts && isTimeoutError(error)) {
+          lastError = "";
+          continue;
+        }
         lastError = error.message;
         await updateBotMessage(record, `Slack bridge error: ${error.message}`, { force: true });
         await markComplete(record, userMessageTs, true);

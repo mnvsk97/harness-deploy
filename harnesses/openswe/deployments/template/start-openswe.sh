@@ -70,6 +70,12 @@ oauth_text = oauth_text.replace(
     "        raise HTTPException(401, \"not authenticated\")\n"
     "    return decode_session(token)\n",
     "def require_session(request: Request) -> dict[str, Any]:\n"
+    "    if os.environ.get(\"OPENSWE_DASHBOARD_AUTH_DISABLED\", \"0\") == \"1\":\n"
+    "        return {\n"
+    "            \"sub\": os.environ.get(\"OPENSWE_DASHBOARD_SERVICE_USER\", \"slack\"),\n"
+    "            \"email\": os.environ.get(\"OPENSWE_DASHBOARD_SERVICE_EMAIL\", \"slack@truefoundry.local\"),\n"
+    "            \"avatar_url\": None,\n"
+    "        }\n"
     "    service_token = os.environ.get(\"OPENSWE_DASHBOARD_AUTH_TOKEN\", \"\")\n"
     "    auth_header = request.headers.get(\"authorization\", \"\")\n"
     "    if service_token and auth_header == f\"Bearer {service_token}\":\n"

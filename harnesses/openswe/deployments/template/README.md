@@ -18,6 +18,9 @@ live in `OPENSWE_SECRET_GROUP`.
 without repo provider credentials. Repo clone, push, and PR workflows should be
 enabled separately when those credentials are intentionally configured.
 
+`OPENSWE_DASHBOARD_AUTH_DISABLED=1` keeps the dashboard API open for demo
+deployments. Turn this off before production use.
+
 Slack-created sessions need a fallback repository because the Open SWE dashboard
 normally reads that from a logged-in user's profile. Set `OPENSWE_DEFAULT_REPO`
 to an `owner/repo` value before deploying.
@@ -65,6 +68,10 @@ Render and deploy:
 make render-openswe-slack
 make deploy-openswe-slack
 ```
+
+Open SWE can keep its stream endpoint open without sending bytes while a run is
+still working. The Slack bridge sets `HARNESS_IGNORE_EVENT_TIMEOUTS=true` so
+those waits do not become Slack-visible errors.
 
 Create or update the Slack app from this copy-paste manifest:
 
