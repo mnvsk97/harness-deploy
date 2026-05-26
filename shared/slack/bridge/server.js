@@ -379,8 +379,14 @@ function eventText(event) {
   if (event.message?.role && event.message.role !== "assistant") return "";
   if (event.author && event.author !== "agent" && event.author !== "assistant") return "";
   if (Array.isArray(event.chunks)) {
+    const textChunks = event.chunks
+      .map((item) => item.kind === "text" ? (item.text || item.content || "") : "")
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    if (textChunks) return textChunks;
     return event.chunks
-      .map((item) => item.text || item.output || item.content || "")
+      .map((item) => item.kind === "tool-execution" ? (item.output || "") : "")
       .filter(Boolean)
       .join("\n")
       .trim();

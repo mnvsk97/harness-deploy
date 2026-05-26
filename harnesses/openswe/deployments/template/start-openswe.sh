@@ -59,6 +59,15 @@ server_text = server_text.replace(
     "        )\n"
     "        del github_token\n",
 )
+server_text = server_text.replace(
+    "            slack_read_thread_messages,\n"
+    "            slack_thread_reply,\n",
+    "",
+)
+server_text = server_text.replace(
+    "            SlackAssistantStatusMiddleware(),\n",
+    "",
+)
 server_path.write_text(server_text)
 
 daytona_path = Path("agent/integrations/daytona.py")
